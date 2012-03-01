@@ -1,0 +1,68 @@
+== Welcome to geoptima.rb
+
+Geoptima is a suite of applications for measuring and locating mobile/cellular subscriber experience on GPS enabled smartphones. It is produced by AmanziTel AB in Helsingborg, Sweden, and supports many phone manufacturers, with free downloads from the various app stores, markets or marketplaces. This Ruby library is only capable of reading the JSON format files priduced by these phones and reformating them as CSV for further analysis in Excel. This is a simple and independent way of analysing the data, when compared to the full-featured analysis applications and servers available from AmanziTel. If you want to analyse a limited amount of data in excel, or with Ruby, then this GEM might be for you. If you want to analyse large amounts of data, from many subscribers, or over long periods of time then rather consider the NetView and Customer IQ applications from AmanziTel at www.amanzitel.com.
+
+For more information on Geoptima refer to:
+* {AmanziTel}[http://www.amanzitel.com] - for commercial applications and platforms supporting Geoptima
+* {Geoptima on Android}[https://market.android.com/details?id=com.AmanziTel.Geoptima] - on the android market
+* For Geoptima on other plaforms, use the phone to search the relevant app-store or market
+
+=== Documentation
+
+The current version includes the core geoptima.rb library as well as a few command-line apps for using the library.
+
+== show_geoptima.rb
+
+This script simply imports the JSON files on the command-line and then:
+* Prints out basic information about each file (subscriber information, start date and number of events)
+* Optionally prints out all events on the console for visual inspection (using the -p option)
+* Optionally prints out all events to files in CSV format with merging of event types and fields into a single header for further processing with Excel or OpenOffice (using the -x option)
+
+Which event types to include and various other options are available using the command-line. Run it with the -h option to get a full list of options. The current version should support:
+
+Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file <files>
+  -d  debug mode (output more context during processing) (false)
+  -p  print mode (print out final results to console) 
+  -v  verbose mode (output extra information to console) 
+  -x  export IMEI specific CSV files for further processing 
+  -s  seperate the export files by event type 
+  -h  show this help
+  -L  limit verbose output to specific number of lines (10000)
+  -E  comma-seperated list of event types to show and export (default: all; current: )
+  -T  time range to limit results to (default: all; current: )
+
+Currently the script also locates events that are close enough in time to GPS events.
+
+== show_geoptima_sos.rb
+
+This is a simplified version of the above script with special support for finding the SOS events in Blackberry phones. Run with the JSON files on the command line and it will print out all SOS events, possibly located to close GPS events.
+
+=== Installation
+
+Two options:
+* As a RubyGem: jruby -S gem install geoptima
+* From source: git clone git@github.com:craigtaverner/geoptima.rb.git
+
+=== Some Examples
+
+.. to be done ..
+(or see the code in the command-line utilities described below for examples)
+
+=== Command-line utilities
+
+The examples directory includes a few sample Ruby scripts for various import/export tasks, as well as some sample Geoptima data to test on. Consider the following run:
+
+  git clone git@github.com:craigtaverner/geoptima.rb.git
+  cd geoptima.rb/examples
+  ./geoptima.rb -x craig.json
+
+This should produce a file called ####.txt containing a CSV version of the Geoptima events for importing into Excel or OpenOffice.Calc for further processing.
+
+=== Contributing
+
+Have you found a bug, need help or have a patch ?
+Just clone geoptima.rb and send me a pull request or email me.
+
+=== License
+
+MIT, see the LICENSE file http://github.com/craigtaverner/geoptima.rb/tree/master/LICENSE.
