@@ -20,7 +20,7 @@ This script simply imports the JSON files on the command-line and then:
 
 Which event types to include and various other options are available using the command-line. Run it with the -h option to get a full list of options. The current version should support:
 
-Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file <files>
+  Usage: ./show_geoptima.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file <files>
   -d  debug mode (output more context during processing) (false)
   -p  print mode (print out final results to console) 
   -v  verbose mode (output extra information to console) 
@@ -31,7 +31,7 @@ Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file 
   -E  comma-seperated list of event types to show and export (default: all; current: )
   -T  time range to limit results to (default: all; current: )
 
-Currently the script also locates events that are close enough in time to GPS events.
+Currently the script also locates events that are close enough in time to GPS events. We hope to improve this with interpolation in the near future to be more compatible with the results from the commercial solutions.
 
 == show_geoptima_sos.rb
 
@@ -54,9 +54,9 @@ The examples directory includes a few sample Ruby scripts for various import/exp
 
   git clone git@github.com:craigtaverner/geoptima.rb.git
   cd geoptima.rb/examples
-  ./geoptima.rb -x craig.json
+  ./show_geoptima.rb -x sample_geoptima.json
 
-This should produce a file called ####.txt containing a CSV version of the Geoptima events for importing into Excel or OpenOffice.Calc for further processing.
+This should produce a file called 357841036600753.csv containing a CSV version of the Geoptima events for importing into Excel or OpenOffice.Calc for further processing. The number is the IMEI of the phone used, and if you process many JSON files in one go, you will get as many output files as there are phones represented by the data.
 
 === Contributing
 
