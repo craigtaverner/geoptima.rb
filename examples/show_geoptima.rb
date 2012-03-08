@@ -7,6 +7,8 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
+Geoptima::assert_version("0.0.3")
+
 $debug=false
 
 $event_names=[]
@@ -35,6 +37,8 @@ while arg=ARGV.shift do
         $seperate=true
       when 'o'
         $export_stats=true
+      when 'm'
+        $map_headers=true
       when 'E'
         $event_names += ARGV.shift.split(/[\,\;\:\.]+/)
       when 'T'
@@ -66,6 +70,7 @@ Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file 
   -v  verbose mode (output extra information to console) #{cw $verbose}
   -x  export IMEI specific CSV files for further processing #{cw $export}
   -o  export field statistis #{cw $export_stats}
+  -m  map headers to classic NetView compatible version #{cw $map_headers}
   -s  seperate the export files by event type #{cw $seperate}
   -h  show this help
   -L  limit verbose output to specific number of lines #{cw $print_limit}
@@ -101,13 +106,34 @@ class Export
     end
     @headers[nil] = @headers.values.flatten
     files && files.each do |key,file|
-      file.puts "Time\tEvent\tLatitude\tLongitude\t#{header(key).join("\t")}\n"
+      file.puts map_headers(['Time','Event','Latitude','Longitude','IMSI','IMEI']+header(key)).join("\t")
     end
     if $debug || $verbose
       @headers.each do |name,head|
         puts "Header[#{name}]: #{head.join(',')}"
       end
     end
+  end
+  def cap(array,sep="")
+    array.map do |v|
+      "#{v[0..0].upcase}#{v[1..-1]}"
+    end.join(sep)
+  end
+  def map_headers(hnames)
+    $map_headers && hnames.map do |h|
+        case h
+        when 'Time'
+          'time'
+        when /gps\./
+          cap(h.split(/[\._]/),'_').gsub(/gps/i,'GPS')
+        when /^(call|signal|data|sms|mms|browser|neighbor)/i
+          cap(h.split(/[\._]/),'_').gsub(/Neighbor/,'Neighbour').gsub(/mms/i,'MMS').gsub(/sms/,'SMS')
+        when /\./
+          cap(h.split(/[\._]/))
+        else
+          h
+        end
+    end || hnames
   end
   def export_stats(stats)
     File.open("#{imei}_stats.csv",'w') do |out|
@@ -155,6 +181,7 @@ end
 puts "Found #{$datasets.length} IMEIs"
 $datasets.keys.sort.each do |imei|
   dataset = $datasets[imei]
+  imsi = dataset.imsi
   events = dataset.sorted
   puts if($print)
   puts "Found #{dataset}"
@@ -167,8 +194,8 @@ $datasets.keys.sort.each do |imei|
       names.each do |name|
         if event.name === name
           fields = export.header($seperate ? name : nil).map{|h| event[h]}
-          export.puts_to "#{event.time_key}\t#{event.name}\t#{event.latitude}\t#{event.longitude}\t#{fields.join("\t")}", name
-          if_le{puts "#{event.time_key}\t#{event.name}\t#{event.latitude}\t#{event.longitude}\t#{event.fields.inspect}"}
+          export.puts_to "#{event.time_key}\t#{event.name}\t#{event.latitude}\t#{event.longitude}\t#{imsi}\t#{imei}\t#{fields.join("\t")}", name
+          if_le{puts "#{event.time_key}\t#{event.name}\t#{event.latitude}\t#{event.longitude}\t#{imsi}\t#{imei}\t#{event.fields.inspect}"}
         end
       end
     end

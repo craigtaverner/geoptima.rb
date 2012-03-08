@@ -31,6 +31,21 @@ module Geoptima
 
   # The Geoptima::Event class represents and individual record or event
   class Event
+    KNOWN_HEADERS={
+      "gps" => ["timeoffset","latitude","longitude","altitude","accuracy","direction","speed"],
+      "service" => ["timeoffset","plmn","cell_id","lac","mnc","mcc"],
+      "call" => ["timeoffset","status","number"],
+      "runningApps" => ["timeoffset","appName","state"],
+      "batteryState" => ["timeoffset","state"],
+      "trafficSpeed" => ["timeoffset","interface","direction","delay","speed"],
+      "storageStatus" => ["timeoffset","path","totalSize","freeSize"],
+      "signal" => ["timeoffset","strength","rxqual","ecio"],
+      "roundtrip" => ["timeoffset","interface","address","type","roundtripTime"],
+      "httpRequest" => ["timeoffset","interface","address","delay","speed"],
+      "dnsLookup" => ["timeoffset","interface","address","lookupTime","ip"],
+      "ftpSpeed" => ["timeoffset","interface","direction","delay","peak","speed"],
+      "browserDedicatedTest" => ["timeoffset","url","pageRenders","pageRendered","pageSize","success"]
+    }
     attr_reader :header, :name, :data, :fields, :time, :latitude, :longitude
     def initialize(start,name,header,data)
       @name = name
@@ -152,6 +167,23 @@ module Geoptima
         events = data['values']
         event_type = data.keys.reject{|k| k=~/values/}[0]
         header = @events_metadata[event_type]
+        unless header
+          puts "No header found for '#{event_type}', trying known Geoptima headers"
+          header = Event::KNOWN_HEADERS[event_type]
+          if header
+            puts "Found known header '#{event_type}' => #{header.inspect}"
+            if data = events_data[event_type]
+              mismatch = data.length % header.length
+              if mismatch != 0
+                puts "Known header length #{header.length} incompatible with data length #{events_data[event_type].length}"
+                header = nil
+              end
+            else
+              puts "No data found for event type '#{event_type}'"
+              header = nil
+            end
+          end
+        end
         if header
           events_data[event_type] = (0...data[event_type].to_i).inject([]) do |a,block|
             index = header.length * block
