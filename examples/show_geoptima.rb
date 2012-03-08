@@ -17,7 +17,7 @@ def cw(val)
   val.nil? ? '' : "(#{val})"
 end
 
-while arg=ARGV.shift:
+while arg=ARGV.shift do
   if arg =~ /^\-(\w+)/
     $1.split(//).each do |aa|
       case aa
@@ -33,6 +33,8 @@ while arg=ARGV.shift:
         $export=true
       when 's'
         $seperate=true
+      when 'o'
+        $export_stats=true
       when 'E'
         $event_names += ARGV.shift.split(/[\,\;\:\.]+/)
       when 'T'
@@ -63,6 +65,7 @@ Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file 
   -p  print mode (print out final results to console) #{cw $print}
   -v  verbose mode (output extra information to console) #{cw $verbose}
   -x  export IMEI specific CSV files for further processing #{cw $export}
+  -o  export field statistis #{cw $export_stats}
   -s  seperate the export files by event type #{cw $seperate}
   -h  show this help
   -L  limit verbose output to specific number of lines #{cw $print_limit}
@@ -76,8 +79,9 @@ $verbose = $verbose || $debug
 $datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range => $time_range)
 
 class Export
-  attr_reader :files, :names, :headers
+  attr_reader :files, :imei, :names, :headers
   def initialize(imei,names,dataset)
+    @imei = imei
     @names = names
     if $export
       if $seperate
@@ -91,6 +95,7 @@ class Export
     end
     @headers = names.inject({}) do |a,name|
       a[name] = dataset.header([name]).reject{|h| h === 'timeoffset'}
+      a[name] = a[name].map{|h| "#{name}.#{h}"} unless($separate)
       puts "Created header for name #{name}: #{a[name].join(',')}" if($debug)
       a
     end
@@ -101,6 +106,17 @@ class Export
     if $debug || $verbose
       @headers.each do |name,head|
         puts "Header[#{name}]: #{head.join(',')}"
+      end
+    end
+  end
+  def export_stats(stats)
+    File.open("#{imei}_stats.csv",'w') do |out|
+      stats.keys.sort.each do |header|
+        out.puts header
+        values = stats[header].keys.sort
+        out.puts values.join("\t")
+        out.puts values.map{|v| stats[header][v]}.join("\t")
+        out.puts
       end
     end
   end
@@ -146,6 +162,7 @@ $datasets.keys.sort.each do |imei|
     names = $event_names
     names = dataset.events_names if(names.length<1)
     export = Export.new(imei,names,dataset)
+    export.export_stats(dataset.stats) if($export_stats)
     events.each do |event|
       names.each do |name|
         if event.name === name

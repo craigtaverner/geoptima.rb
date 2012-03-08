@@ -54,7 +54,7 @@ module Geoptima
       utc.strftime("%Y-%m-%d %H:%M:%S.%3N")
     end
     def [](key)
-      @fields[key]
+      @fields[key] || @fields[key.gsub(/#{name}\./,'')]
     end
     def -(other)
       (self.time - other.time) * SPERDAY
@@ -81,10 +81,12 @@ module Geoptima
       @path = path
       @json = JSON.parse(File.read(path))
       if $debug
-        puts "Read Geoptima: #{geoptima}"
+        puts "Read Geoptima: #{geoptima.to_json}"
         puts "\tSubscriber: #{subscriber.to_json}"
         puts "\tIMSI: #{imsi}"
         puts "\tIMEI: #{imei}"
+        puts "\tMCC: #{subscriber['MCC']}"
+        puts "\tMNC: #{subscriber['MNC']}"
         puts "\tStart: #{start}"
       end
     end
@@ -131,9 +133,14 @@ module Geoptima
       events.keys.sort
     end
     def make_hash(name)
+      puts "About to process json hash: #{geoptima[name].to_json}" if($debug)
       geoptima[name].inject({}) do |a,md|
-        key = md.keys[0]
-        a[key]=md[key]
+        if md.respond_to? 'keys'
+          key = md.keys[0]
+          a[key]=md[key]
+        else
+          puts "Invalid hash format for '#{name}': #{md.to_json[0..70]}..."
+        end
         a
       end
     end
@@ -252,6 +259,28 @@ module Geoptima
       end.flatten
     end
 
+    def stats
+      merge_events unless @sorted
+      unless @stats
+        @stats = {}
+        event_count = 0
+        sorted.each do |event|
+          event_count += 1
+          event.header.each do |field|
+            key = "#{event.name}.#{field}"
+            value = event[field]
+            @stats[key] ||= {}
+            @stats[key][value] ||= 0
+            @stats[key][value] += 1
+          end
+        end
+      end
+      @stats.reject! do |k,v|
+        v.length > 500 || v.length > 10 && v.length > event_count / 2
+      end
+      @stats
+    end
+
     def events_names
       @data.map{ |v| v.events_names }.flatten.uniq.sort
     end
@@ -280,6 +309,7 @@ module Geoptima
       prev_gps = nil
       sorted.each do |event|
         if event.name === 'gps'
+          event.locate(event)
           prev_gps = event
         elsif prev_gps
           event.locate_if_closer_than(prev_gps,60)
