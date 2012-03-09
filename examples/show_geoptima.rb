@@ -7,7 +7,7 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
-Geoptima::assert_version("0.0.4")
+Geoptima::assert_version("0.0.5")
 
 $debug=false
 
@@ -39,6 +39,8 @@ while arg=ARGV.shift do
         $export_stats=true
       when 'm'
         $map_headers=true
+      when 'l'
+        $more_headers=true
       when 'E'
         $event_names += ARGV.shift.split(/[\,\;\:\.]+/)
       when 'T'
@@ -71,6 +73,7 @@ Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file 
   -x  export IMEI specific CSV files for further processing #{cw $export}
   -o  export field statistis #{cw $export_stats}
   -m  map headers to classic NetView compatible version #{cw $map_headers}
+  -l  longer header list (phone and operator fields) #{cw $more_headers}
   -s  seperate the export files by event type #{cw $seperate}
   -h  show this help
   -L  limit verbose output to specific number of lines #{cw $print_limit}
@@ -86,6 +89,7 @@ $datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range
 class Export
   attr_reader :files, :imei, :names, :headers
   def initialize(imei,names,dataset)
+    imei = dataset.imsi if(imei.to_s.length < 1)
     @imei = imei
     @names = names
     if $export
@@ -106,13 +110,49 @@ class Export
     end
     @headers[nil] = @headers.values.flatten
     files && files.each do |key,file|
-      file.puts map_headers(['Time','Event','Latitude','Longitude','IMSI','IMEI']+header(key)).join("\t")
+      file.puts map_headers(base_headers+more_headers+header(key)).join("\t")
     end
     if $debug || $verbose
       @headers.each do |name,head|
         puts "Header[#{name}]: #{head.join(',')}"
       end
     end
+  end
+  def base_headers
+    ['Time','Event','Latitude','Longitude']
+  end
+  def more_headers
+    $more_headers ? ['IMSI','IMEI','MSISDN','MCC','MNC','LAC','CI','RSSI','Platform','Model','OS','Operator'] : []
+  end
+  def base_fields(event)
+    [event.time_key,event.name,event.latitude,event.longitude]
+  end
+  def more_fields(event,dataset)
+    more_headers.map do |h|
+      case h
+      when 'RSSI'
+        dataset.recent(event,'signal.strength')
+      when 'LAC'
+        dataset.recent(event,'service.lac')
+      when 'CI'
+        dataset.recent(event,'service.cell_id')
+      when 'MCC'
+        dataset[h] || dataset.recent(event,'service.mcc')
+      when 'MNC'
+        dataset[h] || dataset.recent(event,'service.mnc')
+      when 'Operator'
+        dataset['carrierName']
+      when 'IMSI'
+        dataset.imsi
+      when 'IMEI'
+        dataset.imei
+      else
+        dataset[h]
+      end
+    end
+  end
+  def get_field(event,name)
+    h=(base_headers+more_headers).grep(/#{name}/)
   end
   def cap(array,sep="")
     array.map do |v|
@@ -194,8 +234,9 @@ $datasets.keys.sort.each do |imei|
       names.each do |name|
         if event.name === name
           fields = export.header($seperate ? name : nil).map{|h| event[h]}
-          export.puts_to "#{event.time_key}\t#{event.name}\t#{event.latitude}\t#{event.longitude}\t#{imsi}\t#{imei}\t#{fields.join("\t")}", name
-          if_le{puts "#{event.time_key}\t#{event.name}\t#{event.latitude}\t#{event.longitude}\t#{imsi}\t#{imei}\t#{event.fields.inspect}"}
+          b_fields = export.base_fields(event) + export.more_fields(event,dataset)
+          export.puts_to "#{b_fields.join("\t")}\t#{fields.join("\t")}", name
+          if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}"}
         end
       end
     end

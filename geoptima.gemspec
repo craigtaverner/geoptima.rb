@@ -25,10 +25,11 @@ EOF
   s.files        = Dir.glob("{bin,lib,rdoc}/**/*").reject{|x| x=~/(tmp|target|test-data)/ || x=~/~$/} +
                    Dir.glob("examples/*rb") + Dir.glob("examples/sample*json") + 
                    %w(README.rdoc CHANGELOG CONTRIBUTORS Gemfile geoptima.gemspec)
-  s.executables  = ['show_geoptima']
-  s.has_rdoc = true
+  s.executables  = ['show_geoptima','geoptima_file_time']
+
   s.extra_rdoc_files = %w( README.rdoc )
-  s.rdoc_options = ["--quiet", "--title", "geoptima.rb", "--opname", "index.html", "--line-numbers", "--main", "README.rdoc", "--inline-source"]
+  s.rdoc_options = ["--quiet", "--title", "Geoptima.rb", "--line-numbers", "--main", "README.rdoc", "--inline-source"]
+
   s.add_dependency('json',">= 1.6.5")
   s.required_ruby_version = ">= 1.8.6"
 end

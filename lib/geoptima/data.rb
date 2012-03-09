@@ -71,6 +71,9 @@ module Geoptima
     def [](key)
       @fields[key] || @fields[key.gsub(/#{name}\./,'')]
     end
+    def []=(key,value)
+      @fields[key] ||= value
+    end
     def -(other)
       (self.time - other.time) * SPERDAY
     end
@@ -95,13 +98,14 @@ module Geoptima
     def initialize(path)
       @path = path
       @json = JSON.parse(File.read(path))
+      @fields = {}
       if $debug
         puts "Read Geoptima: #{geoptima.to_json}"
         puts "\tSubscriber: #{subscriber.to_json}"
-        puts "\tIMSI: #{imsi}"
-        puts "\tIMEI: #{imei}"
-        puts "\tMCC: #{subscriber['MCC']}"
-        puts "\tMNC: #{subscriber['MNC']}"
+        puts "\tIMSI: #{self['imsi']}"
+        puts "\tIMEI: #{self['imei']}"
+        puts "\tMCC: #{self['MCC']}"
+        puts "\tMNC: #{self['MNC']}"
         puts "\tStart: #{start}"
       end
     end
@@ -114,20 +118,8 @@ module Geoptima
     def subscriber
       @subscriber ||= geoptima['subscriber']
     end
-    def imsi
-      @imsi ||= subscriber['imsi']
-    end
-    def imei
-      @imei ||= subscriber['imei']
-    end
-    def platform
-      @platform ||= subscriber['Platform'] || subscriber['platform']
-    end
-    def model
-      @model ||= subscriber['Model'] || subscriber['model']
-    end
-    def os
-      @os ||= subscriber['OS']
+    def [](key)
+      @fields[key] ||= subscriber[key] || subscriber[key.downcase]
     end
     def start
       @start ||= subscriber['start'] && DateTime.parse(subscriber['start'].gsub(/Asia\/Bangkok/,'GMT+7').gsub(/Mar 17 2044/,'Feb 14 2012'))
@@ -220,6 +212,7 @@ module Geoptima
       @data = []
       @options = options
       @time_range = options[:time_range] || Range.new(Config[:min_datetime],Config[:max_datetime])
+      @fields = {}
     end
 
     def <<(data)
@@ -237,8 +230,8 @@ module Geoptima
 
     def imsis
       @imsis ||= @data.inject({}) do |a,d|
-        a[d.imsi] ||= 0
-        a[d.imsi] += d.count.to_i
+        a[d['imsi']] ||= 0
+        a[d['imsi']] += d.count.to_i
         a
       end.to_a.sort do |a,b|
         b[1]<=>a[1]
@@ -248,16 +241,44 @@ module Geoptima
       end.compact.uniq
     end
 
+    def recent(event,key)
+      unless event[key]
+        puts "Searching for recent values for '#{key}' starting at event #{event}" if($debug)
+        ev,prop=key.split(/\./)
+        ar=sorted
+        puts "\tSearching through #{ar && ar.length} events for event type #{ev} and property #{prop}" if($debug)
+        if i=ar.index(event)
+          afe = while(i>0)
+            fe = ar[i-=1]
+            puts "\t\tTesting event[#{i}]: #{fe}" if($debug)
+            break(fe) if(fe.nil? || fe.name == ev || (event.time - fe.time) * SPERDAY > 60)
+          end
+          if afe && afe.name == ev
+            puts "\t\tFound event[#{i}] with #{prop} => #{afe[prop]} and time gap of #{(event.time - fe.time) * SPERDAY} seconds" if($verbose)
+            event[key] = afe[prop]
+          end
+        else
+          puts "Event not found in search for recent '#{key}': #{event}"
+        end
+      end
+#      @recent[key] ||= ''
+      event[key]
+    end
+
+    def [](key)
+      @fields[key.downcase] ||= @data.map{|d| d[key]}.compact.uniq[0]
+    end
+
     def platform
-      @platform ||= @data.map{|d| d.platform}.compact.uniq[0]
+      self['Platform']
     end
 
     def model
-      @model ||= @data.map{|d| d.model}.compact.uniq[0]
+      self['Model']
     end
 
     def os
-      @os ||= @data.map{|d| d.os}.compact.uniq[0]
+      self['OS']
     end
 
     def first
@@ -360,8 +381,8 @@ module Geoptima
         unless geoptima.valid?
           puts "INVALID: #{geoptima.start}\t#{file}\n\n"
         else
-          datasets[geoptima.imei] ||= Geoptima::Dataset.new(geoptima.imei, options)
-          datasets[geoptima.imei] << geoptima
+          datasets[geoptima['imei']] ||= Geoptima::Dataset.new(geoptima['imei'], options)
+          datasets[geoptima['imei']] << geoptima
         end
       end
       datasets
