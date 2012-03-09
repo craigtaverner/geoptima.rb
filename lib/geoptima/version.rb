@@ -1,6 +1,6 @@
 module Geoptima
 
-  VERSION = "0.0.3"
+  VERSION = "0.0.4"
 
   def self.version_as_int(ver)
     base = 1

@@ -22,7 +22,9 @@ then rather consider the NetView and Customer IQ applications from AmanziTel at 
 EOF
 
   s.require_path = 'lib'
-  s.files        = Dir.glob("{bin,lib,examples}/**/*").reject{|x| x=~/(tmp|target|test-data|kurt|357|012)/} + %w(README.rdoc CHANGELOG CONTRIBUTORS Gemfile geoptima.gemspec)
+  s.files        = Dir.glob("{bin,lib,rdoc}/**/*").reject{|x| x=~/(tmp|target|test-data)/ || x=~/~$/} +
+                   Dir.glob("examples/*rb") + Dir.glob("examples/sample*json") + 
+                   %w(README.rdoc CHANGELOG CONTRIBUTORS Gemfile geoptima.gemspec)
   s.executables  = ['show_geoptima']
   s.has_rdoc = true
   s.extra_rdoc_files = %w( README.rdoc )
