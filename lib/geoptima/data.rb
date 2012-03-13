@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'rubygems'
-require 'json'
+require 'multi_json'
 require 'date'
 
 #
@@ -46,8 +46,9 @@ module Geoptima
       "ftpSpeed" => ["timeoffset","interface","direction","delay","peak","speed"],
       "browserDedicatedTest" => ["timeoffset","url","pageRenders","pageRendered","pageSize","success"]
     }
-    attr_reader :header, :name, :data, :fields, :time, :latitude, :longitude
-    def initialize(start,name,header,data)
+    attr_reader :file, :header, :name, :data, :fields, :time, :latitude, :longitude
+    def initialize(file,start,name,header,data)
+      @file = file
       @name = name
       @header = header
       @data = data
@@ -97,7 +98,8 @@ module Geoptima
     attr_reader :path, :json, :count
     def initialize(path)
       @path = path
-      @json = JSON.parse(File.read(path))
+#      @json = JSON.parse(File.read(path))
+      @json = MultiJson.decode(File.read(path))
       @fields = {}
       if $debug
         puts "Read Geoptima: #{geoptima.to_json}"
@@ -117,6 +119,9 @@ module Geoptima
     end
     def subscriber
       @subscriber ||= geoptima['subscriber']
+    end
+    def imei
+      @imei ||= self['imei']
     end
     def [](key)
       @fields[key] ||= subscriber[key] || subscriber[key.downcase]
@@ -182,7 +187,7 @@ module Geoptima
             data = events[index...(index+header.length)]
             if data && data.length == header.length
               @count += 1
-              a << Event.new(start,event_type,header,data)
+              a << Event.new(self,start,event_type,header,data)
             else
               puts "Invalid '#{event_type}' data block #{block}: #{data.inspect}"
               break a
@@ -381,8 +386,9 @@ module Geoptima
         unless geoptima.valid?
           puts "INVALID: #{geoptima.start}\t#{file}\n\n"
         else
-          datasets[geoptima['imei']] ||= Geoptima::Dataset.new(geoptima['imei'], options)
-          datasets[geoptima['imei']] << geoptima
+          key = options[:combine_all] ? 'all' : geoptima['imei']
+          datasets[key] ||= Geoptima::Dataset.new(key, options)
+          datasets[key] << geoptima
         end
       end
       datasets
