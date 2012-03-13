@@ -7,7 +7,7 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
-Geoptima::assert_version("0.0.5")
+Geoptima::assert_version("0.0.6")
 
 $debug=false
 
@@ -39,8 +39,12 @@ while arg=ARGV.shift do
         $export_stats=true
       when 'm'
         $map_headers=true
+      when 'a'
+        $combine_all=true
       when 'l'
         $more_headers=true
+      when 'C'
+        $chart_spec = ARGV.shift
       when 'E'
         $event_names += ARGV.shift.split(/[\,\;\:\.]+/)
       when 'T'
@@ -75,16 +79,18 @@ Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file 
   -m  map headers to classic NetView compatible version #{cw $map_headers}
   -l  longer header list (phone and operator fields) #{cw $more_headers}
   -s  seperate the export files by event type #{cw $seperate}
+  -a  combine all IMEI's into a single dataset #{cw $combine_all}
   -h  show this help
-  -L  limit verbose output to specific number of lines #{cw $print_limit}
+  -C  use specified chart specification file for stats and charts: #{$chart_spec}
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})
   -T  time range to limit results to (default: all; current: #{$time_range})
+  -L  limit verbose output to specific number of lines #{cw $print_limit}
 EOHELP
   exit 0
 end
 
 $verbose = $verbose || $debug
-$datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range => $time_range)
+$datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range => $time_range, :combine_all => $combine_all)
 
 class Export
   attr_reader :files, :imei, :names, :headers
@@ -108,7 +114,7 @@ class Export
       puts "Created header for name #{name}: #{a[name].join(',')}" if($debug)
       a
     end
-    @headers[nil] = @headers.values.flatten
+    @headers[nil] = @headers.values.flatten.sort
     files && files.each do |key,file|
       file.puts map_headers(base_headers+more_headers+header(key)).join("\t")
     end
@@ -118,14 +124,21 @@ class Export
       end
     end
   end
+  def export_imei
+    ($combine_all || $more_headers)
+  end
   def base_headers
-    ['Time','Event','Latitude','Longitude']
+    ['Time','Event','Latitude','Longitude'] + 
+    (export_imei ? ['IMEI'] : [])
   end
   def more_headers
-    $more_headers ? ['IMSI','IMEI','MSISDN','MCC','MNC','LAC','CI','RSSI','Platform','Model','OS','Operator'] : []
+    $more_headers ?
+    ['IMSI','MSISDN','MCC','MNC','LAC','CI','LAC-CI','RSSI','Platform','Model','OS','Operator'] :
+    []
   end
   def base_fields(event)
-    [event.time_key,event.name,event.latitude,event.longitude]
+    [event.time_key,event.name,event.latitude,event.longitude] +
+    (export_imei ? [event.file.imei] : [])
   end
   def more_fields(event,dataset)
     more_headers.map do |h|
@@ -136,6 +149,8 @@ class Export
         dataset.recent(event,'service.lac')
       when 'CI'
         dataset.recent(event,'service.cell_id')
+      when 'LAC-CI'
+        "#{dataset.recent(event,'service.lac')}-#{dataset.recent(event,'service.cell_id')}"
       when 'MCC'
         dataset[h] || dataset.recent(event,'service.mcc')
       when 'MNC'
@@ -144,8 +159,6 @@ class Export
         dataset['carrierName']
       when 'IMSI'
         dataset.imsi
-      when 'IMEI'
-        dataset.imei
       else
         dataset[h]
       end
