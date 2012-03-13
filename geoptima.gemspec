@@ -30,6 +30,6 @@ EOF
   s.extra_rdoc_files = %w( README.rdoc )
   s.rdoc_options = ["--quiet", "--title", "Geoptima.rb", "--line-numbers", "--main", "README.rdoc", "--inline-source"]
 
-  s.add_dependency('json',">= 1.6.5")
+  s.add_dependency('json_pure',">= 1.6.5")
   s.required_ruby_version = ">= 1.8.6"
 end
