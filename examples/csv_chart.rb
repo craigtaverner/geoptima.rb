@@ -6,14 +6,37 @@ $: << '../lib'
 
 require 'geoptima/chart'
 require 'geoptima/options'
+require 'fileutils'
 
-$files = Geoptima::Options.process_args
+$export_dir = '.'
+
+$files = Geoptima::Options.process_args do |option|
+  option.m {$merge_all = true}
+  option.D {$export_dir = ARGV.shift}
+  option.N {$merged_name = ARGV.shift}
+end
+
+FileUtils.mkdir_p $export_dir
+
+$help = true unless($files.length>0)
+if $help
+  puts <<EOHELP
+Usage: csv_chart <-dhm> <-N name> <-D dir> files...
+ -d  debug mode #{cw $debug}
+ -h  print this help #{cw $help}
+ -m  merge all files into single stats #{cw $merge_all}
+ -N  use specified name for merged dataset: #{$merged_name}
+ -D  export charts to specified directory: #{$export_dir}
+Files to import: #{$files.join(', ')}
+EOHELP
+  exit
+end
 
 class Stats
-  attr_reader :file, :imei, :headers, :stats, :data
-  def initialize(file,imei,fields)
+  attr_reader :file, :name, :headers, :stats, :data
+  def initialize(file,name,fields)
     @file = file
-    @imei = imei
+    @name = name
     @headers = fields
     @stats = fields.map{|h| {}}
     @data = fields.map{|h| []}
@@ -57,7 +80,10 @@ $stats = {}
 
 $files.each do |file|
   lines = 0
-  imei = file.split(/[_\.]/)[0]
+  filename = File.basename(file)
+  (names = filename.split(/[_\.]/)).pop
+  name = $merged_name || names.join('_')
+  puts "About to read file #{file}"
   File.open(file).each do |line|
     lines += 1
     fields=line.chomp.split(/\t/)
@@ -66,8 +92,10 @@ $files.each do |file|
       fields.each_with_index do |field,index|
         $stats[file].add(field,index)
       end
+    elsif($merge_all && $stats.length>0)
+      file = $stats.values[0].file
     else
-      $stats[file] = Stats.new(file,imei,fields)
+      $stats[file] = Stats.new(filename,name,fields)
     end
   end
 end
@@ -78,33 +106,33 @@ $stats.each do |file,stats|
     case header
     when 'signal.strength'
       Geoptima::Chart.draw_line_chart(
-        stats.imei,
+        stats.name,
         stats.data[0],
         stats.data[index].map{|f| v=f.to_i; (v>-130 && v<0) ? v : nil},
         :title => 'Signal Strength',
         :maximum_value => -30,
         :minimum_value => -130,
         :width => 1024
-      ).write("Chart_#{stats.imei}_#{header}.png")
+      ).write("#{$export_dir}/Chart_#{stats.name}_#{header}.png")
 
       hist = stats.stats[index]
       keys = hist.keys.sort{|a,b| a.to_i <=> b.to_i}
       values = keys.map{|k| hist[k]}
       Geoptima::Chart.draw_histogram_chart(
-        stats.imei, keys, values,
+        stats.name, keys, values,
         :title => 'Signal Strength Distribution',
         :width => 1024
-      ).write("Chart_#{stats.imei}_#{header}_distribution.png")
+      ).write("#{$export_dir}/Chart_#{stats.name}_#{header}_distribution.png")
 
     when 'Event'
       hist = stats.stats[index]
       keys = hist.keys.sort{|a,b| a.to_i <=> b.to_i}
       values = keys.map{|k| hist[k]}
       Geoptima::Chart.draw_category_chart(
-        stats.imei, keys, values,
+        stats.name, keys, values,
         :title => "#{header} Distribution",
         :width => 1024
-      ).write("Chart_#{stats.imei}_#{header}_distribution.png")
+      ).write("#{$export_dir}/Chart_#{stats.name}_#{header}_distribution.png")
 
     else
       if stats.diverse?(index)
@@ -114,7 +142,7 @@ $stats.each do |file,stats|
         hist = stats.stats[index]
         keys = hist.keys.sort{|a,b| a.to_i <=> b.to_i}
         values = keys.map{|k| hist[k]}
-        args = [stats.imei, keys, values, {
+        args = [stats.name, keys, values, {
           :title => "#{header} Distribution",
           :width => 1024}]
         g = (stats.length(index) > 50) ?
@@ -124,7 +152,7 @@ $stats.each do |file,stats|
             (stats.length(index) > 1) ?
               Geoptima::Chart.draw_category_chart(*args) :
             nil
-        g && g.write("Chart_#{stats.imei}_#{header}_distribution.png")
+        g && g.write("#{$export_dir}/Chart_#{stats.name}_#{header}_distribution.png")
       end
     end
   end
