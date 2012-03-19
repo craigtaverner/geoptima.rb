@@ -20,7 +20,7 @@ desc "create the executables in bin"
 task :make_bin do
   Dir.glob('examples/*.rb').each do |file|
     bin = file.gsub(/\.rb/,'').gsub(/examples/,'bin')
-    puts "cp #{file} #{bin}"
+    system "cp #{file} #{bin}"
   end
 end
 
