@@ -7,17 +7,13 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
-Geoptima::assert_version("0.0.6")
+Geoptima::assert_version("0.0.7")
 
 $debug=false
 
 $event_names=[]
 $files = []
 $print_limit = 10000
-
-def cw(val)
-  val.nil? ? '' : "(#{val})"
-end
 
 while arg=ARGV.shift do
   if arg =~ /^\-(\w+)/
