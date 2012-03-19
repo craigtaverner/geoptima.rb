@@ -16,8 +16,16 @@ task :clean_all do
   system "git clean -df"
 end
 
+desc "create the executables in bin"
+task :make_bin do
+  Dir.glob('examples/*.rb').each do |file|
+    bin = file.gsub(/\.rb/,'').gsub(/examples/,'bin')
+    puts "cp #{file} #{bin}"
+  end
+end
+
 desc "create the gemspec"
-task :build  do
+task :build => [:make_bin] do
   system "gem build geoptima.gemspec"
 end
 
