@@ -3,6 +3,20 @@
 require 'rubygems'
 require 'multi_json'
 require 'date'
+if $use_dateperformance
+  begin
+    require 'date/performance'
+    require 'date/memoize'
+    class DateTime
+      def >(other) ; self - other > 0 ; end
+      def <(other) ; self - other < 0 ; end
+      def >=(other); self - other >= 0; end
+      def <=(other); self - other <= 0; end
+    end
+  rescue LoadError
+    puts "No date-performance gem installed, some features will run slower"
+  end
+end
 
 #
 # The Geoptima Module provides support for the Geoptima Client JSON file format
@@ -26,6 +40,26 @@ module Geoptima
     end
     def self.[]=(key,value)
       options[key] = value
+    end
+  end
+
+  class DateRange
+    attr_reader :min, :max, :range
+    def initialize(min,max)
+      @min = min
+      @max = max
+      @range = Range.new(min,max)
+    end
+    if ENV['RUBY_VERSION'] =~ /1\.8/
+      puts "Defining Range.include? to wrap for 1.8"
+      def include?(time)
+        @range.include?(time)
+      end
+    else
+      puts "Defining Range.include? to perform inequality tests for 1.9"
+      def include?(time)
+        (time >= min) && (time <= @max)
+      end
     end
   end
 
@@ -67,7 +101,7 @@ module Geoptima
       time.new_offset(0)
     end
     def time_key
-      utc.strftime("%Y-%m-%d %H:%M:%S.%3N")
+      utc.strftime("%Y-%m-%d %H:%M:%S.%3N").gsub(/\.(\d{3})\d+/,'.\1')
     end
     def [](key)
       @fields[key] || @fields[key.gsub(/#{name}\./,'')]
@@ -127,7 +161,7 @@ module Geoptima
       @fields[key] ||= subscriber[key] || subscriber[key.downcase]
     end
     def start
-      @start ||= subscriber['start'] && DateTime.parse(subscriber['start'].gsub(/Asia\/Bangkok/,'GMT+7').gsub(/Mar 17 2044/,'Feb 14 2012'))
+      @start ||= subscriber['start'] && DateTime.parse(subscriber['start'].gsub(/Asia\/Bangkok/,'GMT+7'))#.gsub(/Mar 17 2044/,'Feb 14 2012'))
     end
     def valid?
       start && start > Data.min_start && start < Data.max_start
@@ -216,7 +250,7 @@ module Geoptima
       @imei = imei
       @data = []
       @options = options
-      @time_range = options[:time_range] || Range.new(Config[:min_datetime],Config[:max_datetime])
+      @time_range = options[:time_range] || DateRange.new(Config[:min_datetime],Config[:max_datetime])
       @fields = {}
     end
 
@@ -347,17 +381,30 @@ module Geoptima
       @sorted ||= {}
       unless @sorted[nil]
         event_hash = {}
+        puts "Creating sorted maps for #{self}" if($debug)
         events_names.each do |name|
+          puts "Preparing maps for #{name}" if($debug)
           @data.each do |data|
+            puts "Processing #{(e=data.events[name]) && e.length} events for #{name}" if($debug)
             (events = data.events[name]) && events.each do |event|
+#              t = event.time.to_i
+              puts "\t\tTesting #{event.time} inside #{@time_range}" if($debug)
+#              if t < tmax
+#              if event.time > @time_range.min
+#              if (event.time >= @time_range.min) && (event.time < @time_range.max)
               if @time_range.include?(event.time)
+#              if @time_range.cover?(event.time)
+                puts "\t\t\tEvent at #{event.time} is inside #{@time_range}" if($debug)
                 key = "#{event.time_key} #{name}"
                 event_hash[key] = event
               end
             end
           end
+          puts "After adding #{name} events, maps are #{event_hash.length} long" if($debug)
         end
+        puts "Merging and sorting #{event_hash.keys.length} maps" if($debug)
         @sorted[nil] = event_hash.keys.sort.map{|k| event_hash[k]}
+        puts "Sorted #{@sorted[nil].length} events" if($debug)
         locate_events if(options[:locate])
       end
       @sorted
@@ -365,18 +412,21 @@ module Geoptima
 
     def locate_events
       prev_gps = nil
+      count = 0
+      puts "Locating #{sorted.length} events" if($debug)
       sorted.each do |event|
         if event.name === 'gps'
           event.locate(event)
           prev_gps = event
         elsif prev_gps
-          event.locate_if_closer_than(prev_gps,60)
+          count += 1 if(event.locate_if_closer_than(prev_gps,60))
         end
       end
+      puts "Located #{count} / #{sorted.length} events" if($debug)
     end
 
     def to_s
-      "IMEI:#{imei}, IMSI:#{imsis.join(',')}, Platform:#{platform}, Model:#{model}, OS:#{os}, Files:#{file_count}, Events:#{sorted.length}"
+      "IMEI:#{imei}, IMSI:#{imsis.join(',')}, Platform:#{platform}, Model:#{model}, OS:#{os}, Files:#{file_count}, Events:#{sorted && sorted.length}"
     end
 
     def self.make_datasets(files, options={})
