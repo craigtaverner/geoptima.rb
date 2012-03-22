@@ -7,7 +7,7 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
-Geoptima::assert_version("0.0.9")
+Geoptima::assert_version("0.1.0")
 
 $debug=false
 
