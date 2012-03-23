@@ -11,7 +11,7 @@ For more information on Geoptima refer to:
 
 The current version includes the core geoptima.rb library as well as a few command-line apps for using the library. We have not yet documented the library, but some of the command-line scripts are described below.
 
-== show_geoptima
+==== show_geoptima
 
 This script imports the JSON files on the command-line and then:
 * Prints out basic information about each file (subscriber information, start date and number of events)
@@ -38,11 +38,11 @@ Which event types to include and various other options are available using the c
 
 Currently the script also locates events that are close enough in time to GPS events. We hope to improve this with interpolation in the near future to be more compatible with the results from the commercial solutions. This time-window is also used for some of the extended header information, like LAC and CI, and effectively duplicates those fields from their own events to others. Take this into account when doing statistics on the results. It is better to use the original values, not the duplicates, if you want reliable statistics.
 
-== csv_stats
+==== csv_stats
 
 This script reads any CSV file and outputs histograms of the values for each column. These can be manually imported into a spreadsheet or charting program for further analysis or charting.
 
-== csv_charts
+==== csv_charts
 
 This script also performs statistics on CSV files but is much more powerful, including automatic output of charts based on columns of data, as well as a configurable system for adding new columns by modifying or merging other columns, as designing specific charts for output.
 
