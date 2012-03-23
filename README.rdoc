@@ -109,6 +109,14 @@ This example uses some fancy Ruby code to replace cryptic HTTP URL codes with no
 
 This one copies the 'runningApp.appName' column to the 'Apps' column, but only if the 'runningApps.state' column is set to 'STARTED'.
 
+=== Charts
+
+The charts described above can also be seen as examples in the Gallery wiki page at https://github.com/craigtaverner/geoptima.rb/wiki/Gallery.
+
+One example included here is a distribution of call status over time.
+
+https://github.com/craigtaverner/geoptima.rb/blob/master/images/Chart_All_Call%20Status_category_distribution.png?raw=true
+
 === Installation
 
 Two options:
