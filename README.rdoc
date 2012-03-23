@@ -46,7 +46,7 @@ This script reads any CSV file and outputs histograms of the values for each col
 
 This script also performs statistics on CSV files but is much more powerful, including automatic output of charts based on columns of data, as well as a configurable system for adding new columns by modifying or merging other columns, as designing specific charts for output.
 
-Usage: csv_chart <-dhamt> <-S specfile> <-N name> <-D dir> <-T range> <-P diversity> files...
+ Usage: csv_chart <-dhamt> <-S specfile> <-N name> <-D dir> <-T range> <-P diversity> files...
  -d  debug mode 
  -h  print this help (true)
  -a  automatically create charts for all properties (true)
