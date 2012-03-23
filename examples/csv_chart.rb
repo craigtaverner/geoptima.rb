@@ -10,7 +10,7 @@ require 'geoptima/options'
 require 'fileutils'
 require 'geoptima/daterange'
 
-Geoptima::assert_version("0.1.0")
+Geoptima::assert_version("0.1.1")
 Geoptima::Chart.available? || puts("No charting libraries available") || exit(-1)
 
 $export_dir = '.'
@@ -38,7 +38,7 @@ $merge_all = true if($time_split)
 $help = true unless($files.length>0)
 if $help
   puts <<EOHELP
-Usage: csv_chart <-dham> <-S specfile> <-N name> <-D dir> files...
+Usage: csv_chart <-dhamt> <-S specfile> <-N name> <-D dir> <-T range> <-P diversity> files...
  -d  debug mode #{cw $debug}
  -h  print this help #{cw $help}
  -a  automatically create charts for all properties #{cw $create_all}
@@ -208,7 +208,7 @@ module Geoptima
           vals.map!{|v| mk_range(v)}
         end
         puts "StatSpec[#{self}]: #{vals.inspect}" if($debug)
-        val = proc.call(*vals)
+        val = proc && proc.call(*vals) || vals[0]
         puts "StatSpec[#{self}]: #{vals.inspect} --> #{val.inspect}" if($debug)
         val
       end
@@ -304,7 +304,7 @@ module Geoptima
       chart(header, options.merge(:chart_type => :category))
     end
     def histogram_chart(header,options={})
-      chart(header, options.merge(:chart_type => :histgram))
+      chart(header, options.merge(:chart_type => :histogram))
     end
     def line_chart(header,options={})
       chart(header, options.merge(:chart_type => :line))

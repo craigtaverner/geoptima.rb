@@ -7,7 +7,7 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
-Geoptima::assert_version("0.1.0")
+Geoptima::assert_version("0.1.1")
 
 $debug=false
 
@@ -39,8 +39,6 @@ while arg=ARGV.shift do
         $combine_all=true
       when 'l'
         $more_headers=true
-      when 'C'
-        $chart_spec = ARGV.shift
       when 'E'
         $event_names += ARGV.shift.split(/[\,\;\:\.]+/)
       when 'T'
@@ -66,7 +64,7 @@ end
 $help = true if($files.length < 1)
 if $help
   puts <<EOHELP
-Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file <files>
+Usage: show_geoptima <-dpvxomlsah> <-L limit> <-E types> <-T min,max> file <files>
   -d  debug mode (output more context during processing) #{cw $debug}
   -p  print mode (print out final results to console) #{cw $print}
   -v  verbose mode (output extra information to console) #{cw $verbose}
@@ -77,7 +75,6 @@ Usage: ./showGeoptimaEvents.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file 
   -s  seperate the export files by event type #{cw $seperate}
   -a  combine all IMEI's into a single dataset #{cw $combine_all}
   -h  show this help
-  -C  use specified chart specification file for stats and charts: #{$chart_spec}
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})
   -T  time range to limit results to (default: all; current: #{$time_range})
   -L  limit verbose output to specific number of lines #{cw $print_limit}

@@ -9,33 +9,105 @@ For more information on Geoptima refer to:
 
 === Documentation
 
-The current version includes the core geoptima.rb library as well as a few command-line apps for using the library.
+The current version includes the core geoptima.rb library as well as a few command-line apps for using the library. We have not yet documented the library, but some of the command-line scripts are described below.
 
-== show_geoptima.rb
+== show_geoptima
 
-This script simply imports the JSON files on the command-line and then:
+This script imports the JSON files on the command-line and then:
 * Prints out basic information about each file (subscriber information, start date and number of events)
 * Optionally prints out all events on the console for visual inspection (using the -p option)
 * Optionally prints out all events to files in CSV format with merging of event types and fields into a single header for further processing with Excel or OpenOffice (using the -x option)
+* The CSV export mode has many further options for exporting to multiple files (-s), merging IMEI's into single dataset (-a), long headers with repeated information (-l), etc.
 
 Which event types to include and various other options are available using the command-line. Run it with the -h option to get a full list of options. The current version should support:
 
-  Usage: ./show_geoptima.rb <-dvxEh> <-L limit> <-E types> <-T min,max> file <files>
+  Usage: show_geoptima <-dpvxomlsah> <-L limit> <-E types> <-T min,max> file <files>
   -d  debug mode (output more context during processing) (false)
   -p  print mode (print out final results to console) 
   -v  verbose mode (output extra information to console) 
   -x  export IMEI specific CSV files for further processing 
+  -o  export field statistis 
+  -m  map headers to classic NetView compatible version 
+  -l  longer header list (phone and operator fields) 
   -s  seperate the export files by event type 
+  -a  combine all IMEI's into a single dataset 
   -h  show this help
-  -L  limit verbose output to specific number of lines (10000)
   -E  comma-seperated list of event types to show and export (default: all; current: )
   -T  time range to limit results to (default: all; current: )
+  -L  limit verbose output to specific number of lines (10000)
 
-Currently the script also locates events that are close enough in time to GPS events. We hope to improve this with interpolation in the near future to be more compatible with the results from the commercial solutions.
+Currently the script also locates events that are close enough in time to GPS events. We hope to improve this with interpolation in the near future to be more compatible with the results from the commercial solutions. This time-window is also used for some of the extended header information, like LAC and CI, and effectively duplicates those fields from their own events to others. Take this into account when doing statistics on the results. It is better to use the original values, not the duplicates, if you want reliable statistics.
 
-== show_geoptima_sos.rb
+== csv_stats
 
-This is a simplified version of the above script with special support for finding the SOS events in Blackberry phones. Run with the JSON files on the command line and it will print out all SOS events, possibly located to close GPS events.
+This script reads any CSV file and outputs histograms of the values for each column. These can be manually imported into a spreadsheet or charting program for further analysis or charting.
+
+== csv_charts
+
+This script also performs statistics on CSV files but is much more powerful, including automatic output of charts based on columns of data, as well as a configurable system for adding new columns by modifying or merging other columns, as designing specific charts for output.
+
+Usage: csv_chart <-dhamt> <-S specfile> <-N name> <-D dir> <-T range> <-P diversity> files...
+ -d  debug mode 
+ -h  print this help (true)
+ -a  automatically create charts for all properties (true)
+ -m  merge all files into single stats 
+ -t  merge and split by time (days) 
+ -N  use specified name for merged dataset: 
+ -D  export charts to specified directory: .
+ -S  use chart specification in specified file: 
+ -P  diversity threshold in percentage for automatic reports: 40.0
+ -T  set time-range filter: 
+
+The -S option is especially interesting, since you can control both custom columns and chart output. Consider the following examples:
+
+ # Signal strength in 10dBm category ranges bar chart
+ stats 'Signal Strength', 'RSSI', :div => 10
+ histogram_chart 'Signal.Strength'
+ 
+ # Multi-column chart for different event types over days of the week
+ stats 'Call Status', 'call.status', :group => :days
+ stats 'Data Status', 'data.status', :group => :days
+ stats 'Events', 'Event', :group => :days
+ category_chart 'Data Status'
+ category_chart 'Events'
+ category_chart 'Call Status'
+ 
+ # The same stats as before but in line charts
+ line_chart 'Data Status'
+ line_chart 'Events'
+ line_chart 'Call Status'
+ 
+ # Top-10 charts for very diverse values like LAC-CI
+ stats('URL', 'browser.URL') {|v| v && v.gsub(/%(\w{2})/){|m| $1.to_i(16).chr}[0..50]}
+ stats('Apps', 'runningApps.appName', 'runningApps.state') {|name,state| (state=='STARTED') ? name : nil}
+ histogram_chart 'LAC-CI', :top => 10, :side => true
+ histogram_chart 'Event', :top => 10, :side => true
+ histogram_chart 'URL', :top => 10, :side => true
+ histogram_chart 'Apps', :top => 10, :side => true
+
+One thing to be careful above with the stats command is that if you do not provide a block, the part of the line in {}, then you also do not need brackets. However, if you provide the block, then you must also use brackets. See the examples above for both cases.
+
+The contents of the brackets are the options to the command, and the block in {} is a piece of code to be run when converting the input columns to the output columns. If you pass three arguments to the stats command, the first is the new column name, the next two are the columns to use, and these two will be passed as two parameters to the block. Let's look at three examples:
+
+ stats 'Data Status', 'data.status'
+
+This simply creates a copy of the column 'data.status' with the new name 'Data Status', so that resulting charts have a nicer title. No block is given, and the identity operator is assumed. This is the same as passing the block {|v| v}.
+
+ stats 'Data Status', 'data.status', :group => :days
+
+The extra option to group results in several columns being made, one for each day for which data was found. This allows for the data to be charted as multiple dataset on the same chart. The default grouping behaviour here is to have each day on the x-axis, and each value as a new dataset.
+
+ stats 'Signal Strength', 'signal.strength', :div => 10
+
+The div option will cause values within a range of 10 to be merged into a new value with the name of the range. In this case a value like -53 will become -60..-50. This is useful for making bar charts with fewer bars.
+
+ stats('URL', 'browser.URL') {|v| v && v.gsub(/%(\w{2})/){|m| $1.to_i(16).chr}[0..50]}
+
+This example uses some fancy Ruby code to replace cryptic HTTP URL codes with normal ASCII, so the URL's look better.
+
+ stats('Apps', 'runningApps.appName', 'runningApps.state') {|name,state| (state=='STARTED') ? name : nil}
+
+This one copies the 'runningApp.appName' column to the 'Apps' column, but only if the 'runningApps.state' column is set to 'STARTED'.
 
 === Installation
 
@@ -43,20 +115,15 @@ Two options:
 * As a RubyGem: jruby -S gem install geoptima
 * From source: git clone git@github.com:craigtaverner/geoptima.rb.git
 
-=== Some Examples
-
-.. to be done ..
-(or see the code in the command-line utilities described below for examples)
-
-=== Command-line utilities
-
-The examples directory includes a few sample Ruby scripts for various import/export tasks, as well as some sample Geoptima data to test on. Consider the following run:
+When installing the ruby gem you get the commands like 'show_geoptima' and 'csv_charts' in the path. However, if you install from source, you instead get them as examples/show_geoptima.rb.
 
   git clone git@github.com:craigtaverner/geoptima.rb.git
   cd geoptima.rb/examples
   ./show_geoptima.rb -x sample_geoptima.json
 
 This should produce a file called 357841036600753.csv containing a CSV version of the Geoptima events for importing into Excel or OpenOffice.Calc for further processing. The number is the IMEI of the phone used, and if you process many JSON files in one go, you will get as many output files as there are phones represented by the data.
+
+The examples directory also contains a number of sample *.spec files for the csv_chart command.
 
 === Contributing
 
@@ -66,3 +133,4 @@ Just clone geoptima.rb and send me a pull request or email me.
 === License
 
 MIT, see the LICENSE file http://github.com/craigtaverner/geoptima.rb/tree/master/LICENSE.
+
