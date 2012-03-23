@@ -15,6 +15,7 @@ Geoptima::Chart.available? || puts("No charting libraries available") || exit(-1
 
 $export_dir = '.'
 $diversity = 40.0
+$chart_width = 1024
 
 $files = Geoptima::Options.process_args do |option|
   option.m {$merge_all = true}
@@ -24,6 +25,7 @@ $files = Geoptima::Options.process_args do |option|
   option.N {$merged_name = ARGV.shift}
   option.S {$specfile = ARGV.shift}
   option.P {$diversity = ARGV.shift.to_f}
+  option.W {$chart_width = ARGV.shift.to_i}
   option.T do
     $time_range = Geoptima::DateRange.new(*(ARGV.shift.split(/[\,]+/).map do |t|
       DateTime.parse t
@@ -33,6 +35,7 @@ end
 
 FileUtils.mkdir_p $export_dir
 
+$chart_width=100 if($chart_width.to_i < 100)
 $create_all = true unless($specfile)
 $merge_all = true if($time_split)
 $help = true unless($files.length>0)
@@ -49,6 +52,7 @@ Usage: csv_chart <-dhamt> <-S specfile> <-N name> <-D dir> <-T range> <-P divers
  -S  use chart specification in specified file: #{$specfile}
  -P  diversity threshold in percentage for automatic reports: #{$diversity}
  -T  set time-range filter: #{$time_range}
+ -W  set default chart-width: #{$chart_width}
 Files to import: #{$files.join(', ')}
 EOHELP
   exit
@@ -260,7 +264,7 @@ module Geoptima
       if grouped_stats.length > 0
         title = options[:title]
         title ||= "#{header} Distribution"
-        options.merge!( :title => title, :width => 1024 )
+        options.merge!( :title => title, :width => $chart_width )
         value_map = {}
         groups = grouped_stats.keys.sort
         groups.each_with_index do |name,index|
@@ -284,7 +288,7 @@ module Geoptima
         end
         values = keys.map{|k| hist[k]}
         title ||= "#{header} Distribution"
-        options.merge!( :title => title, :width => 1024 )
+        options.merge!( :title => title, :width => $chart_width )
         g = Geoptima::Chart.send "draw_#{chart_type}_chart", stats_manager.name, keys, values, options
       end
       g.write("#{$export_dir}/Chart_#{stats_manager.name}_#{header}_#{chart_type}_distribution.png")
