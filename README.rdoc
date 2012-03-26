@@ -133,6 +133,12 @@ This should produce a file called 357841036600753.csv containing a CSV version o
 
 The examples directory also contains a number of sample *.spec files for the csv_chart command.
 
+==== Installing on Windows
+
+For windows use the RubyInstaller at http://rubyinstaller.org/
+
+To get chart support working you will probably need to install the DevKit as described on https://github.com/oneclick/rubyinstaller/wiki/Development-Kit
+
 === Contributing
 
 Have you found a bug, need help or have a patch ?

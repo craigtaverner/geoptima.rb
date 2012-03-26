@@ -10,7 +10,7 @@ require 'geoptima/options'
 require 'fileutils'
 require 'geoptima/daterange'
 
-Geoptima::assert_version("0.1.1")
+Geoptima::assert_version("0.1.2")
 Geoptima::Chart.available? || puts("No charting libraries available") || exit(-1)
 
 $export_dir = '.'
@@ -27,9 +27,7 @@ $files = Geoptima::Options.process_args do |option|
   option.P {$diversity = ARGV.shift.to_f}
   option.W {$chart_width = ARGV.shift.to_i}
   option.T do
-    $time_range = Geoptima::DateRange.new(*(ARGV.shift.split(/[\,]+/).map do |t|
-      DateTime.parse t
-    end))
+    $time_range = Geoptima::DateRange.from ARGV.shift
   end
 end
 
@@ -67,8 +65,7 @@ class Stats
     @numerical = true
   end
   def add(field)
-    puts "\tAdding field '#{field}' for property #{name}" if($debug)
-    if field && field =~ /\w/
+    unless field.nil? || field == ''
       @numerical &&= is_number?(field)
       stats[field] ||= 0
       stats[field] += 1
@@ -133,12 +130,12 @@ class StatsManager
   end
   def add_all(fields,headers)
     fields.each_with_index do |field,index|
-      add(field,headers[index])
+      add(field,headers[index],index)
     end
     $specs && $specs.add_fields(self,fields)
   end
-  def add(field,header)
-    puts "\tAdding field '#{field}' for property #{header}" if($debug)
+  def add(field,header,index)
+    puts "\tAdding field[#{index}] '#{field}' for property #{header}" if($debug)
     add_header(header) unless(@stats[header])
     @stats[header].add(field)
   end
@@ -152,10 +149,11 @@ end
 
 module Geoptima
   class StatSpec
-    attr_reader :header, :index, :indices, :fields, :options, :proc, :groups
+    attr_reader :header, :event, :index, :indices, :fields, :options, :proc, :groups
     def initialize(header,*fields,&block)
       @header = header
       @fields = fields
+      @event = @fields[0].split(/\./)[0]
       @proc = block
       @groups = {}
       if @fields[-1].is_a?(Hash)
@@ -186,20 +184,42 @@ module Geoptima
             key = @group.call(time)
             ghead = "#{header} #{key}"
             @groups[key] = ghead
-            stats_manager.add(map(fields),ghead)
+            stats_manager.add(map(fields),ghead,nil)
           end
         rescue ArgumentError
           puts "Error: Unable to process time field[#{time}]: #{$!}"
         end
       end
-      stats_manager.add(map(fields),header)
+      stats_manager.add(map(fields),header,index)
     end
-    def mk_range(val)
-      if val =~ /\w/
-        div = options[:div].to_i
-        div = 1 if(div<1)
+    def div
+      unless @div
+        @div = options[:div].to_i
+        @div = 1 if(@div<1)
+      end
+      @div
+    end
+    def cats
+      @cats ||= (options[:categories] || []).map{|c| c.to_i}
+    end
+    def mk_div_range(val)
+      unless val.nil? || val == ''
         min = val.to_i/div * div
-        "#{min}..#{min+div}"
+        (div == 1) ? min : "#{min}..#{min+div}"
+      else
+        val
+      end
+    end
+    def mk_cat_range(val)
+      if val.to_s =~ /\w/
+        val = val.to_i
+        puts "\t\tSearching for value[#{val}] in categories #{cats.inspect}" if($debug)
+        min = cats[0]
+        cats.each do |c|
+          max = c
+          return "#{min}..#{max}" if(min<=val && max>val)
+          min = c
+        end
       else
         val
       end
@@ -208,12 +228,22 @@ module Geoptima
       if @indices
         puts "StatSpec[#{self}]: #{options.inspect}" if($debug)
         vals = @indices.map{|i| values[i]}
-        if options[:div]
-          vals.map!{|v| mk_range(v)}
+        puts "\tVALUES:      #{vals.inspect}" if($debug)
+        (options[:filter] || {}).each do |field,expected|
+          puts "\t\tChecking if field #{field} is #{expected}" if($debug)
+          puts "\t\tLooking for #{field} or #{event}.#{field} in #{@fields.inspect}" if($debug)
+          hi = @fields.index(field.to_s) || @fields.index("#{event}.#{field}")
+          puts "\t\t#{field} -> #{hi} -> #{hi && vals[hi]}" if($debug)
+          return nil unless(hi && vals[hi] && (expected === vals[hi].downcase || vals[hi].downcase === expected.to_s.downcase))
         end
-        puts "StatSpec[#{self}]: #{vals.inspect}" if($debug)
-        val = proc && proc.call(*vals) || vals[0]
-        puts "StatSpec[#{self}]: #{vals.inspect} --> #{val.inspect}" if($debug)
+        val = proc.nil? ? vals[0] : proc.call(*vals)
+        puts "\tBLOCK MAP:   #{vals.inspect} --> #{val.inspect}" if($debug)
+        if options[:div]
+          val = mk_div_range(val)
+        elsif options[:categories]
+          val = mk_cat_range(val)
+        end
+        puts "\tDIV/CAT MAP: #{vals.inspect} --> #{val.inspect}" if($debug)
         val
       end
     end
@@ -269,10 +299,14 @@ module Geoptima
         groups = grouped_stats.keys.sort
         groups.each_with_index do |name,index|
           gs = grouped_stats[name]
-          hist = gs.stats
-          hist.keys.each do |k|
-            value_map[k] ||= [].fill(0,0...groups.length)
-            value_map[k][index] = hist[k]
+          if gs
+            hist = gs.stats
+            hist.keys.each do |k|
+              value_map[k] ||= [].fill(0,0...groups.length)
+              value_map[k][index] = hist[k]
+            end
+          else
+            puts "No grouped stats found for #{name}"
           end
         end
         legends = value_map.keys.sort
@@ -325,7 +359,9 @@ module Geoptima
       end
     end
     def add_fields(stats_manager,fields)
+      puts "Adding fields to #{stat_specs.length} StatSpec's" if($debug)
       stat_specs.each do |stat_spec|
+        puts "Adding fields to StatSpec: #{stat_spec}" if($debug)
         stat_spec.add(stats_manager,fields)
       end
     end
