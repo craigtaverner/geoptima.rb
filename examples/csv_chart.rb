@@ -10,7 +10,7 @@ require 'geoptima/options'
 require 'fileutils'
 require 'geoptima/daterange'
 
-Geoptima::assert_version("0.1.2")
+Geoptima::assert_version("0.1.3")
 Geoptima::Chart.available? || puts("No charting libraries available") || exit(-1)
 
 $export_dir = '.'

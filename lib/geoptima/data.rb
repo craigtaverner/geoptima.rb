@@ -12,9 +12,11 @@ module Geoptima
   SPERDAY = 60*60*24
   MSPERDAY = 1000*60*60*24
   SHORT = 256*256
+  MIN_DATETIME = DateTime.parse("2000-01-01")
+  MAX_DATETIME = DateTime.parse("2040-01-01")
 
   class Config
-    DEFAULT={:min_datetime => DateTime.parse("2000-01-01"), :max_datetime => DateTime.parse("2030-01-01")}
+    DEFAULT={:min_datetime => MIN_DATETIME, :max_datetime => MAX_DATETIME}
     def self.config(options={})
       @@options = (@@options || DEFAULT).merge(options)
     end
@@ -117,6 +119,9 @@ module Geoptima
     def geoptima
       @geoptima ||= json['geoptima']
     end
+    def version
+      @version ||= geoptima['Version'] || geoptima['version']
+    end
     def subscriber
       @subscriber ||= geoptima['subscriber']
     end
@@ -133,13 +138,19 @@ module Geoptima
       start && start > Data.min_start && start < Data.max_start
     end
     def self.min_start
-      @@min_start ||= DateTime.parse("2010-01-01 00:00:00")
+      @@min_start ||= MIN_DATETIME
     end
     def self.max_start
-      @@max_start ||= DateTime.parse("2020-01-01 00:00:00")
+      @@max_start ||= MAX_DATETIME
     end
     def events
       @events ||= make_events
+    end
+    def first
+      events && @first
+    end
+    def last
+      events && @last
     end
     def events_names
       events.keys.sort
@@ -164,6 +175,8 @@ module Geoptima
         events = data['values']
         event_type = data.keys.reject{|k| k=~/values/}[0]
         header = @events_metadata[event_type]
+        # If the JSON is broken (known bug on some releases of the iPhone app)
+        # Then get the header information from a list of known headers
         unless header
           puts "No header found for '#{event_type}', trying known Geoptima headers"
           header = Event::KNOWN_HEADERS[event_type]
@@ -181,6 +194,7 @@ module Geoptima
             end
           end
         end
+        # Now process the single long data array into a list of events with timestamps
         if header
           events_data[event_type] = (0...data[event_type].to_i).inject([]) do |a,block|
             index = header.length * block
@@ -204,7 +218,23 @@ module Geoptima
           puts "No header found for event type: #{event_type}"
         end
       end
+      find_first_and_last(events_data)
       events_data
+    end
+    def find_first_and_last(events_data)
+      @first = nil
+      @last = nil
+      events_data.each do |event_type,data|
+        @first ||= data[0]
+        @last ||= data[-1]
+        @first = data[0] if(@first.time > data[0].time)
+        @last = data[-1] if(@last.time < data[-1].time)
+      end
+      if $debug
+        puts "For data: #{self}"
+        puts "\tFirst event: #{@first}"
+        puts "\tLast event:  #{@last}"
+      end
     end
   end
 
@@ -353,13 +383,8 @@ module Geoptima
           @data.each do |data|
             puts "Processing #{(e=data.events[name]) && e.length} events for #{name}" if($debug)
             (events = data.events[name]) && events.each do |event|
-#              t = event.time.to_i
               puts "\t\tTesting #{event.time} inside #{@time_range}" if($debug)
-#              if t < tmax
-#              if event.time > @time_range.min
-#              if (event.time >= @time_range.min) && (event.time < @time_range.max)
               if @time_range.include?(event.time)
-#              if @time_range.cover?(event.time)
                 puts "\t\t\tEvent at #{event.time} is inside #{@time_range}" if($debug)
                 key = "#{event.time_key} #{name}"
                 event_hash[key] = event

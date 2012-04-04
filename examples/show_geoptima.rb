@@ -7,7 +7,7 @@ $: << '../lib'
 require 'date'
 require 'geoptima'
 
-Geoptima::assert_version("0.1.2")
+Geoptima::assert_version("0.1.3")
 
 $debug=false
 
@@ -15,51 +15,33 @@ $event_names=[]
 $files = []
 $print_limit = 10000
 
-while arg=ARGV.shift do
-  if arg =~ /^\-(\w+)/
-    $1.split(//).each do |aa|
-      case aa
-      when 'h'
-        $help=true
-      when 'd'
-        $debug=true
-      when 'p'
-        $print=true
-      when 'v'
-        $verbose=true
-      when 'x'
-        $export=true
-      when 's'
-        $seperate=true
-      when 'o'
-        $export_stats=true
-      when 'm'
-        $map_headers=true
-      when 'a'
-        $combine_all=true
-      when 'l'
-        $more_headers=true
-      when 'E'
-        $event_names += ARGV.shift.split(/[\,\;\:\.]+/)
-      when 'T'
-        $time_range = Range.new(*(ARGV.shift.split(/[\,]+/).map do |t|
-          DateTime.parse t
-        end))
-      when 'L'
-        $print_limit = ARGV.shift.to_i
-        $print_limit = 10 if($print_limit<1)
-      else
-        puts "Unrecognized option: -#{aa}"
-      end
-    end
-  else
-    if File.exist? arg
-      $files << arg
-    else
-      puts "No such file: #{arg}"
-    end
+$files = Geoptima::Options.process_args do |option|
+  option.p {$print = true}
+  option.v {$verbose = true}
+  option.x {$export = true}
+  option.s {$seperate = true}
+  option.o {$export_stats = true}
+  option.m {$map_headers = true}
+  option.a {$combine_all = true}
+  option.l {$more_headers = true}
+  option.E {$event_names += ARGV.shift.split(/[\,\;\:\.]+/)}
+  option.T do
+    $time_range = Geoptima::DateRange.from ARGV.shift
   end
-end
+  option.L {$print_limit = [1,ARGV.shift.to_i].max}
+
+  option.t {$time_split = true}
+  option.D {$export_dir = ARGV.shift}
+  option.N {$merged_name = ARGV.shift}
+  option.S {$specfile = ARGV.shift}
+  option.P {$diversity = ARGV.shift.to_f}
+  option.W {$chart_width = ARGV.shift.to_i}
+  option.T do
+    $time_range = Geoptima::DateRange.from ARGV.shift
+  end
+end.map do |file|
+  File.exist?(file) ? file : puts("No such file: #{file}")
+end.compact
 
 $help = true if($files.length < 1)
 if $help
@@ -231,6 +213,10 @@ $datasets.keys.sort.each do |imei|
   events = dataset.sorted
   puts if($print)
   puts "Found #{dataset}"
+  if $verbose
+    puts "\tFirst Event: #{dataset.first}"
+    puts "\tLast Event:  #{dataset.last}"
+  end
   if events && ($print || $export)
     names = $event_names
     names = dataset.events_names if(names.length<1)
