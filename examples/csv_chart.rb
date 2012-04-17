@@ -10,7 +10,7 @@ require 'geoptima/options'
 require 'fileutils'
 require 'geoptima/daterange'
 
-Geoptima::assert_version("0.1.3")
+Geoptima::assert_version("0.1.4")
 Geoptima::Chart.available? || puts("No charting libraries available") || exit(-1)
 
 $export_dir = '.'
@@ -26,9 +26,7 @@ $files = Geoptima::Options.process_args do |option|
   option.S {$specfile = ARGV.shift}
   option.P {$diversity = ARGV.shift.to_f}
   option.W {$chart_width = ARGV.shift.to_i}
-  option.T do
-    $time_range = Geoptima::DateRange.from ARGV.shift
-  end
+  option.T {$time_range = Geoptima::DateRange.from ARGV.shift}
 end
 
 FileUtils.mkdir_p $export_dir
@@ -148,8 +146,10 @@ class StatsManager
 end
 
 module Geoptima
+
+  # Class for original stats approach of creating a new 'column' from simple combinations of other columns
   class StatSpec
-    attr_reader :header, :event, :index, :indices, :fields, :options, :proc, :groups
+    attr_reader :header, :event, :index, :indices, :fields, :options, :proc, :groups, :values
     def initialize(header,*fields,&block)
       @header = header
       @fields = fields
@@ -184,13 +184,13 @@ module Geoptima
             key = @group.call(time)
             ghead = "#{header} #{key}"
             @groups[key] = ghead
-            stats_manager.add(map(fields),ghead,nil)
+            stats_manager.add(map_fields(fields),ghead,nil)
           end
         rescue ArgumentError
           puts "Error: Unable to process time field[#{time}]: #{$!}"
         end
       end
-      stats_manager.add(map(fields),header,index)
+      stats_manager.add(map_fields(fields),header,index)
     end
     def div
       unless @div
@@ -224,18 +224,30 @@ module Geoptima
         val
       end
     end
-    def map(values,filter=nil)
+    def prepare_values(values)
+      @values = []
       if @indices
         puts "StatSpec[#{self}]: #{options.inspect}" if($debug)
-        vals = @indices.map{|i| values[i]}
-        puts "\tVALUES:      #{vals.inspect}" if($debug)
-        (options[:filter] || {}).each do |field,expected|
+        @values = @indices.map{|i| values[i]}
+        puts "\tVALUES:      #{values.inspect}" if($debug)
+      end
+      @values
+    end
+    def vals_for(values,filter={})
+      if @indices
+        prepare_values(values)
+        (options[:filter] || filter).each do |field,expected|
           puts "\t\tChecking if field #{field} is #{expected}" if($debug)
           puts "\t\tLooking for #{field} or #{event}.#{field} in #{@fields.inspect}" if($debug)
           hi = @fields.index(field.to_s) || @fields.index("#{event}.#{field}")
-          puts "\t\t#{field} -> #{hi} -> #{hi && vals[hi]}" if($debug)
-          return nil unless(hi && vals[hi] && (expected === vals[hi].downcase || vals[hi].downcase === expected.to_s.downcase))
+          puts "\t\t#{field} -> #{hi} -> #{hi && values[hi]}" if($debug)
+          return nil unless(hi && values[hi] && (expected === values[hi].downcase || values[hi].downcase === expected.to_s.downcase))
         end
+        values
+      end
+    end
+    def map_fields(values,filter={})
+      if vals = vals_for(values,filter)
         val = proc.nil? ? vals[0] : proc.call(*vals)
         puts "\tBLOCK MAP:   #{vals.inspect} --> #{val.inspect}" if($debug)
         if options[:div]
@@ -266,6 +278,128 @@ module Geoptima
       "#{header}[#{index}]<-#{fields.inspect}(#{indices && indices.join(',')})"
     end
   end
+
+  class Group
+    attr_reader :name, :options, :proc, :is_time, :index
+    def initialize(name,options={},&block)
+      @name = name
+      @options = options
+      @proc = block
+      @is_time = options[:is_time]
+    end
+    def index= (ind)
+      puts "Set group header index=#{ind} for group '#{name}'"
+      @index = ind
+    end
+    def call(time,values)
+      is_time && @proc.call(time) || @proc.call(values[index])
+    end
+  end
+
+  # The KPI class allows for complex statistics called 'Key Performance Indicators'.
+  # These are specified using four functions:
+  # filter: how to choose rows to include in the statistics (default is '!map.nil?')
+  # map: how to convert a row into the internal stats (default is input columns)
+  # aggregate: how to aggregate internal stats to higher levels (eg. daily, default is count)
+  # reduce: how to extract presentable stats from internal stats (eg. avg=total/count, default is internal stats)
+  #
+  # The KPI is defined with a name and set of columns to use, followed by the block
+  # defining the four functions above. For example:
+  #
+  # kpi 'DNS Success', 'dnsLookup.address', 'dnsLookup.error', 'dnsLookup.interface' do |f|
+  #   f.filter {|addr,err,int| addr =~/\w/}
+  #   f.map {|addr,err,int| err.length==0 ? [1,1] : [1,0]}
+  #   f.aggregate {|a,v| a[0]+=v[0];a[1]+=v[1];a}
+  #   f.reduce {|a| 100.0*a[1].to_f/a[0].to_f}
+  # end
+  #
+  # Currently this class extends StatSpec for access to the prepare_indices method.
+  # We should consider moving that to a mixin, or depreciating the StatSpec class
+  # entirely since KPISpec should provide a superset of features.
+  class KPISpec < StatSpec
+    def initialize(header,*fields,&block)
+      @header = header
+      @fields = fields
+      @event = @fields[0].split(/\./)[0]
+      block.call self unless(block.nil?)
+      if @fields[-1].is_a?(Hash)
+        @options = @fields.pop
+      else
+        @options = {}
+      end
+      @group_procs = []
+      @groups = {}
+      if @options[:group]
+        [@options[:group]].flatten.compact.sort.uniq.each do |group_name|
+          gname = group_name.to_s.intern
+          case gname
+          when :months
+            group_by(gname,true) {|t| t.strftime("%Y-%m")}
+          when :weeks
+            group_by(gname,true) {|t| t.strftime("%Y w%W")}
+          when :days
+            group_by(gname,true) {|t| t.strftime("%Y-%m-%d")}
+          when :hours
+            group_by(gname,true) {|t| t.strftime("%Y-%m-%d %H")}
+          else
+            group_by(gname) {|f| f}
+          end
+        end
+      end
+      puts "Created StatSpec: #{self}"
+    end
+    def group_by(field,is_time=false,&block)
+      @group_procs = Group.new(field,:is_time => is_time,&block)
+    end
+    def filter(&block)
+      @filter_proc = block
+    end
+    def map(&block)
+      @map_proc = block
+    end
+    def aggregate(&block)
+      @aggregate_proc = block
+    end
+    def reduce(&block)
+      @reduce_proc = block
+    end
+    def add(stats_manager,values)
+      prepare_values(values)
+      if @group_procs.length > 0
+        begin
+          time = DateTime.parse(values[stats_manager.time_index])
+          if $time_range.nil? || $time_range.include?(time)
+            key = @group_procs.inject(header) do |ghead,group|
+              key = @group.call(time,values)
+              ghead += " #{key}"
+            end
+            @groups[key] = ghead
+            stats_manager.add(map_fields(fields),ghead,nil)
+          end
+        rescue ArgumentError
+          puts "Error: Unable to process time field[#{time}]: #{$!}"
+        end
+      end
+      stats_manager.add(map_fields(fields),header,index)
+    end
+    def map_fields(values,filter=nil)
+      if values
+        if @filter_proc.nil? || @filter_proc.call(*values)
+          val = @map_proc && @map_proc.call(*values) || values[0]
+          puts "\tBLOCK MAP:   #{values.inspect} --> #{values.inspect}" if($debug)
+        end
+        val
+      end
+    end
+    def prepare_indices(stats_manager,headers)
+      super(stats_manager,headers)
+      @group_procs.each do |g|
+        g.index = fields.index(g.name)
+      end
+    end
+  end
+
+  # Class for specifications of individual charts
   class ChartSpec
     attr_reader :chart_type, :header, :options
     def initialize(header,options={})
@@ -328,14 +462,15 @@ module Geoptima
       g.write("#{$export_dir}/Chart_#{stats_manager.name}_#{header}_#{chart_type}_distribution.png")
     end
     def to_s
-      "#{chart_type.upcase}-#{header}"
+      "#{chart_type.to_s.upcase}-#{header}"
     end
   end
   class StatsSpecs
-    attr_reader :chart_specs, :stat_specs
+    attr_reader :chart_specs, :stat_specs, :kpi_specs
     def initialize(specfile)
       @chart_specs = []
       @stat_specs = []
+      @kpi_specs = []
       instance_eval(File.open(specfile).read)
     end
     def category_chart(header,options={})
@@ -353,9 +488,15 @@ module Geoptima
     def stats(header,*fields,&block)
       @stat_specs << StatSpec.new(header,*fields,&block)
     end
+    def kpi(header,*fields,&block)
+      @kpi_specs << KPISpec.new(header,*fields,&block)
+    end
     def add_stats(stats_manager,headers)
       stat_specs.each do |stat_spec|
         stat_spec.prepare_indices(stats_manager,headers)
+      end
+      kpi_specs.each do |kpi_spec|
+        kpi_spec.prepare_indices(stats_manager,headers)
       end
     end
     def add_fields(stats_manager,fields)
@@ -364,9 +505,14 @@ module Geoptima
         puts "Adding fields to StatSpec: #{stat_spec}" if($debug)
         stat_spec.add(stats_manager,fields)
       end
+      puts "Adding fields to #{kpi_specs.length} KPISpec's" if($debug)
+      kpi_specs.each do |kpi_spec|
+        puts "Adding fields to KPISpec: #{kpi_spec}" if($debug)
+        kpi_spec.add(stats_manager,fields)
+      end
     end
     def to_s
-      "Stats[#{@stat_specs.join(', ')}] AND Charts[#{@chart_specs.join(', ')}]"
+      "Stats[#{@stat_specs.join(', ')}] AND KPIs[#{@kpi_specs.join(', ')}] AND Charts[#{@chart_specs.join(', ')}]"
     end
   end
 end
@@ -468,7 +614,11 @@ end
 $stats_managers.each do |name,stats_manager|
   if $specs
     $specs.chart_specs.each do |chart_spec|
-      chart_spec.process(stats_manager)
+      begin
+        chart_spec.process(stats_manager)
+      rescue NoMethodError
+        puts "Failed to process chart '#{chart_spec}': #{$!}"
+      end
     end
   end
   if $create_all

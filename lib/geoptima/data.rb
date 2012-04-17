@@ -55,7 +55,7 @@ module Geoptima
       @header = header
       @data = data
       @fields = @header.inject({}) do |a,v|
-        a[v] = @data[a.length]
+        a[v] = check_field(@data[a.length])
         a
       end
       @time = start + (@fields['timeoffset'].to_f / MSPERDAY.to_f)
@@ -64,6 +64,9 @@ module Geoptima
         @fields['cell_id'] = @fields['cell_id'].to_i % SHORT
       end
       puts "Created Event: #{self}" if($debug)
+    end
+    def check_field(field)
+      (field && field.respond_to?('length') && field =~ /\d\,\d/) ? field.gsub(/\,/,'.').to_f : field
     end
     def utc
       time.new_offset(0)
@@ -135,7 +138,7 @@ module Geoptima
       @start ||= subscriber['start'] && DateTime.parse(subscriber['start'].gsub(/Asia\/Bangkok/,'GMT+7'))#.gsub(/Mar 17 2044/,'Feb 14 2012'))
     end
     def valid?
-      start && start > Data.min_start && start < Data.max_start
+      start && start >= (Data.min_start-1) && start < Data.max_start
     end
     def self.min_start
       @@min_start ||= MIN_DATETIME
@@ -180,30 +183,28 @@ module Geoptima
         unless header
           puts "No header found for '#{event_type}', trying known Geoptima headers"
           header = Event::KNOWN_HEADERS[event_type]
-          if header
-            puts "Found known header '#{event_type}' => #{header.inspect}"
-            if data = events_data[event_type]
-              mismatch = data.length % header.length
-              if mismatch != 0
-                puts "Known header length #{header.length} incompatible with data length #{events_data[event_type].length}"
-                header = nil
-              end
-            else
-              puts "No data found for event type '#{event_type}'"
-              header = nil
-            end
+          puts "Found known header '#{event_type}' => #{header.inspect}" if(header)
+        end
+        # Double-check the header length matches a multiple of the data length
+        if header
+          mismatch = events.length % header.length
+          if mismatch != 0
+            puts "'#{event_type}' header length #{header.length} incompatible with data length #{events.length}"
+            header = nil
           end
+        else
+          puts "No header found for event type: #{event_type}"
         end
         # Now process the single long data array into a list of events with timestamps
         if header
           events_data[event_type] = (0...data[event_type].to_i).inject([]) do |a,block|
             index = header.length * block
-            data = events[index...(index+header.length)]
-            if data && data.length == header.length
+            record = events[index...(index+header.length)]
+            if record && record.length == header.length
               @count += 1
-              a << Event.new(self,start,event_type,header,data)
+              a << Event.new(self,start,event_type,header,record)
             else
-              puts "Invalid '#{event_type}' data block #{block}: #{data.inspect}"
+              puts "Invalid '#{event_type}' data block #{block}: #{record.inspect}"
               break a
             end
           end
@@ -214,8 +215,6 @@ module Geoptima
               puts "\t#{d.data.join("\t")}"
             end
           end
-        else
-          puts "No header found for event type: #{event_type}"
         end
       end
       find_first_and_last(events_data)
@@ -227,8 +226,8 @@ module Geoptima
       events_data.each do |event_type,data|
         @first ||= data[0]
         @last ||= data[-1]
-        @first = data[0] if(@first.time > data[0].time)
-        @last = data[-1] if(@last.time < data[-1].time)
+        @first = data[0] if(@first && @first.time > data[0].time)
+        @last = data[-1] if(@last && @last.time < data[-1].time)
       end
       if $debug
         puts "For data: #{self}"
@@ -276,24 +275,28 @@ module Geoptima
       end.compact.uniq
     end
 
-    def recent(event,key)
+    def recent(event,key,seconds=60)
       unless event[key]
-        puts "Searching for recent values for '#{key}' starting at event #{event}" if($debug)
-        ev,prop=key.split(/\./)
-        ar=sorted
-        puts "\tSearching through #{ar && ar.length} events for event type #{ev} and property #{prop}" if($debug)
-        if i=ar.index(event)
-          afe = while(i>0)
-            fe = ar[i-=1]
-            puts "\t\tTesting event[#{i}]: #{fe}" if($debug)
-            break(fe) if(fe.nil? || fe.name == ev || (event.time - fe.time) * SPERDAY > 60)
-          end
-          if afe && afe.name == ev
-            puts "\t\tFound event[#{i}] with #{prop} => #{afe[prop]} and time gap of #{(event.time - fe.time) * SPERDAY} seconds" if($verbose)
-            event[key] = afe[prop]
+        if imei = event.file.imei
+          puts "Searching for recent values for '#{key}' starting at event #{event}" if($debug)
+          ev,prop=key.split(/\./)
+          ar=sorted
+          puts "\tSearching through #{ar && ar.length} events for event type #{ev} and property #{prop}" if($debug)
+          if i=ar.index(event)
+            afe = while(i>0)
+              fe = ar[i-=1]
+              puts "\t\tTesting event[#{i}]: #{fe}" if($debug)
+              break(fe) if(fe.nil? || (event.time - fe.time) * SPERDAY > seconds || (fe.name == ev && fe.file.imei == imei))
+            end
+            if afe && afe.name == ev
+              puts "\t\tFound event[#{i}] with #{prop} => #{afe[prop]} and time gap of #{(event.time - fe.time) * SPERDAY} seconds" if($debug)
+              event[key] = afe[prop]
+            end
+          else
+            puts "Event not found in search for recent '#{key}': #{event}"
           end
         else
-          puts "Event not found in search for recent '#{key}': #{event}"
+          puts "Not searching for correlated data without imei: #{event}"
         end
       end
 #      @recent[key] ||= ''
