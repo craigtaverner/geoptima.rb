@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version("0.1.4")
+Geoptima::assert_version("0.1.5")
 
 $debug=false
 
@@ -202,15 +202,15 @@ class Export
       when 'LAC-CI'
         "#{dataset.recent(event,'service.lac')}-#{dataset.recent(event,'service.cell_id')}"
       when 'MCC'
-        event.file[h] || dataset.recent(event,'service.mcc')
+        event.file[h] || dataset.recent(event,'service.mcc',3600)
       when 'MNC'
-        event.file[h] || dataset.recent(event,'service.mnc')
+        event.file[h] || dataset.recent(event,'service.mnc',3600)
       when 'Battery'
         dataset.recent(event,'batteryState.state',600)
       when 'Operator'
-        event.file['carrierName']
-      when 'IMSI'
-        event.file['imsi']
+        event.file['carrierName'] || dataset.recent(event,'carrierName',3600)
+      when 'IMSI', 'OS', 'Platform', 'IMSI', 'MSISDN', 'Model'
+        event.file[h] || dataset.recent(event,h,3600)
       else
         event.file[h]
       end
@@ -283,13 +283,14 @@ def if_le
   $count += 1
 end
 
-puts "Found #{$datasets.length} IMEIs"
+puts "Found #{$datasets.length} datasets: #{$datasets.values.join('; ')}"
+
 $datasets.keys.sort.each do |imei|
   dataset = $datasets[imei]
   imsi = dataset.imsi
   events = dataset.sorted
   puts if($print)
-  puts "Found #{dataset}"
+  puts "Found #{dataset.description}"
   if $verbose
     puts "\tFirst Event: #{dataset.first}"
     puts "\tLast Event:  #{dataset.last}"

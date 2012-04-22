@@ -239,10 +239,10 @@ module Geoptima
 
   class Dataset
 
-    attr_reader :imei, :options
+    attr_reader :name, :options
 
-    def initialize(imei,options={})
-      @imei = imei
+    def initialize(name,options={})
+      @name = name
       @data = []
       @options = options
       @time_range = options[:time_range] || DateRange.new(Config[:min_datetime],Config[:max_datetime])
@@ -263,14 +263,26 @@ module Geoptima
     end
 
     def imsis
-      @imsis ||= @data.inject({}) do |a,d|
-        a[d['imsi']] ||= 0
-        a[d['imsi']] += d.count.to_i
+      @imsis ||= make_all_from_metadata('imsi')
+    end
+
+    def imei
+      imeis[0]
+    end
+
+    def imeis
+      @imeis ||= make_all_from_metadata('imei')
+    end
+
+    def make_all_from_metadata(field_name)
+      @data.inject({}) do |a,d|
+        a[d[field_name]] ||= 0
+        a[d[field_name]] += d.count.to_i
         a
       end.to_a.sort do |a,b|
         b[1]<=>a[1]
       end.map do |x|
-        #puts "Have IMSI: #{x.join('=')}"
+        #puts "Have #{field_name}: #{x.join('=')}"
         x[0]
       end.compact.uniq
     end
@@ -304,18 +316,18 @@ module Geoptima
     end
 
     def [](key)
-      @fields[key.downcase] ||= @data.map{|d| d[key]}.compact.uniq[0]
+      @fields[key.downcase] ||= @data.map{|d| d[key]}.compact.uniq
     end
 
-    def platform
+    def platforms
       self['Platform']
     end
 
-    def model
+    def models
       self['Model']
     end
 
-    def os
+    def oses
       self['OS']
     end
 
@@ -345,8 +357,8 @@ module Geoptima
 
     def header(names=nil)
       merge_events unless @sorted
-      (names || events_names).map do |name|
-        [(s=sorted(name)[0]) && s.header]
+      (names || events_names).map do |event_type|
+        [(s=sorted(event_type)[0]) && s.header]
       end.flatten
     end
 
@@ -420,7 +432,11 @@ module Geoptima
     end
 
     def to_s
-      "IMEI:#{imei}, IMSI:#{imsis.join(',')}, Platform:#{platform}, Model:#{model}, OS:#{os}, Files:#{file_count}, Events:#{sorted && sorted.length}"
+      (imei.to_s.length < 1 || name == imei) ? name : imeis.join(',')
+    end
+
+    def description
+      "Dataset:#{name}, IMEI:#{imeis.join(',')}, IMSI:#{imsis.join(',')}, Platform:#{platforms.join(',')}, Model:#{models.join(',')}, OS:#{oses.join(',')}, Files:#{file_count}, Events:#{sorted && sorted.length}"
     end
 
     def self.make_datasets(files, options={})
