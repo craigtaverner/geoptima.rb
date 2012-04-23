@@ -45,6 +45,7 @@ module Geoptima
 
     def self.process_args(debug=nil)
       options = Options.new(debug)
+      options.add('f') {$flush_stdout = true}
       options.add('v') {$print_version = true}
       options.add('d') {$debug = true}
       options.add('h') {$help = true}
@@ -60,6 +61,7 @@ module Geoptima
         end
       end
       puts "Geoptima Gem Version: #{Geoptima::VERSION}" if($print_version)
+      STDOUT.sync if($flush_stdout)
       options.args
     end
 

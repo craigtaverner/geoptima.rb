@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version("0.1.5")
+Geoptima::assert_version("0.1.6")
 
 $debug=false
 
@@ -117,6 +117,7 @@ Usage: show_geoptima <-dpvxomlsah> <-L limit> <-E types> <-T min,max> <-M mapfil
   -l  longer header list (phone and operator fields) #{cw $more_headers}
   -s  seperate the export files by event type #{cw $seperate}
   -a  combine all IMEI's into a single dataset #{cw $combine_all}
+  -f  flush stdout #{cw $flush_stdout}
   -h  show this help
   -P  prefix for exported files (default: ''; current: #{$export_prefix})
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})

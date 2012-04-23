@@ -10,7 +10,7 @@ require 'geoptima/options'
 require 'fileutils'
 require 'geoptima/daterange'
 
-Geoptima::assert_version("0.1.5")
+Geoptima::assert_version("0.1.6")
 Geoptima::Chart.available? || puts("No charting libraries available") || exit(-1)
 
 $export_dir = '.'
@@ -37,18 +37,19 @@ $merge_all = true if($time_split)
 $help = true unless($files.length>0)
 if $help
   puts <<EOHELP
-Usage: csv_chart <-dhamt> <-S specfile> <-N name> <-D dir> <-T range> <-P diversity> files...
- -d  debug mode #{cw $debug}
- -h  print this help #{cw $help}
- -a  automatically create charts for all properties #{cw $create_all}
- -m  merge all files into single stats #{cw $merge_all}
- -t  merge and split by time (days) #{cw $time_split}
- -N  use specified name for merged dataset: #{$merged_name}
- -D  export charts to specified directory: #{$export_dir}
- -S  use chart specification in specified file: #{$specfile}
- -P  diversity threshold in percentage for automatic reports: #{$diversity}
- -T  set time-range filter: #{$time_range}
- -W  set default chart-width: #{$chart_width}
+Usage: csv_chart <-dhamtf> <-S specfile> <-N name> <-D dir> <-T range> <-P diversity> files...
+  -d  debug mode #{cw $debug}
+  -h  print this help #{cw $help}
+  -a  automatically create charts for all properties #{cw $create_all}
+  -m  merge all files into single stats #{cw $merge_all}
+  -t  merge and split by time (days) #{cw $time_split}
+  -f  flush stdout #{cw $flush_stdout}
+  -N  use specified name for merged dataset: #{$merged_name}
+  -D  export charts to specified directory: #{$export_dir}
+  -S  use chart specification in specified file: #{$specfile}
+  -P  diversity threshold in percentage for automatic reports: #{$diversity}
+  -T  set time-range filter: #{$time_range}
+  -W  set default chart-width: #{$chart_width}
 Files to import: #{$files.join(', ')}
 EOHELP
   exit
