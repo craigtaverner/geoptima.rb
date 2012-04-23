@@ -224,18 +224,18 @@ module Geoptima
         val
       end
     end
-    def prepare_values(values)
+    def prepare_values(all_values)
       @values = []
       if @indices
         puts "StatSpec[#{self}]: #{options.inspect}" if($debug)
-        @values = @indices.map{|i| values[i]}
+        @values = @indices.map{|i| all_values[i]}
         puts "\tVALUES:      #{values.inspect}" if($debug)
       end
       @values
     end
-    def vals_for(values,filter={})
+    def vals_for(all_values,filter={})
       if @indices
-        prepare_values(values)
+        prepare_values(all_values)
         (options[:filter] || filter).each do |field,expected|
           puts "\t\tChecking if field #{field} is #{expected}" if($debug)
           puts "\t\tLooking for #{field} or #{event}.#{field} in #{@fields.inspect}" if($debug)
@@ -246,8 +246,8 @@ module Geoptima
         values
       end
     end
-    def map_fields(values,filter={})
-      if vals = vals_for(values,filter)
+    def map_fields(all_values,filter={})
+      if vals = vals_for(all_values,filter)
         val = proc.nil? ? vals[0] : proc.call(*vals)
         puts "\tBLOCK MAP:   #{vals.inspect} --> #{val.inspect}" if($debug)
         if options[:div]
