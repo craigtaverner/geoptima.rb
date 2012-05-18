@@ -25,12 +25,12 @@ module Geoptima
       @range = Range.new(@min,@max)
     end
     if ENV['RUBY_VERSION'] =~ /1\.8/
-      puts "Defining Range.include? to wrap for 1.8"
+      puts "Defining Range.include? to wrap for 1.8" if($verbose)
       def include?(time)
         @range.include?(time)
       end
     else
-      puts "Defining Range.include? to perform inequality tests for 1.9"
+      puts "Defining Range.include? to perform inequality tests for 1.9" if($verbose)
       def include?(time)
         (time >= min) && (time <= @max)
       end

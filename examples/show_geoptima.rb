@@ -18,7 +18,6 @@ $print_limit = 10000
 
 $files = Geoptima::Options.process_args do |option|
   option.p {$print = true}
-  option.v {$verbose = true}
   option.x {$export = true}
   option.s {$seperate = true}
   option.o {$export_stats = true}
@@ -104,13 +103,16 @@ def show_header_maps
   end
 end
 
+exit 0 if($print_version && !$verbose)
+
 $help = true if($files.length < 1)
 if $help
   puts <<EOHELP
-Usage: show_geoptima <-dpvxomlsah> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
+Usage: show_geoptima <-dwvpxomlsafh> <-P export_prefix> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
   -d  debug mode (output more context during processing) #{cw $debug}
+  -w  verbose mode (output extra information to console) #{cw $verbose}
+  -v  print geoptima library version #{Geoptima::VERSION}
   -p  print mode (print out final results to console) #{cw $print}
-  -v  verbose mode (output extra information to console) #{cw $verbose}
   -x  export IMEI specific CSV files for further processing #{cw $export}
   -o  export field statistis #{cw $export_stats}
   -m  map headers to classic NetView compatible version #{cw $map_headers}

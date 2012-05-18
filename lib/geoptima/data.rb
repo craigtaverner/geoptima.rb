@@ -12,7 +12,9 @@ module Geoptima
   SPERDAY = 60*60*24
   MSPERDAY = 1000*60*60*24
   SHORT = 256*256
-  MIN_DATETIME = DateTime.parse("1970-01-01")
+  MIN_VALID_DATETIME = DateTime.parse("1970-01-01")
+  MAX_VALID_DATETIME = DateTime.parse("2040-01-01")
+  MIN_DATETIME = DateTime.parse("2008-01-01")
   MAX_DATETIME = DateTime.parse("2040-01-01")
 
   class Config
@@ -141,10 +143,10 @@ module Geoptima
       start && start >= (Data.min_start-1) && start < Data.max_start
     end
     def self.min_start
-      @@min_start ||= MIN_DATETIME
+      @@min_start ||= MIN_VALID_DATETIME
     end
     def self.max_start
-      @@max_start ||= MAX_DATETIME
+      @@max_start ||= MAX_VALID_DATETIME
     end
     def events
       @events ||= make_events

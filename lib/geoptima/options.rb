@@ -47,6 +47,7 @@ module Geoptima
       options = Options.new(debug)
       options.add('f') {$flush_stdout = true}
       options.add('v') {$print_version = true}
+      options.add('w') {$verbose = true}
       options.add('d') {$debug = true}
       options.add('h') {$help = true}
       puts "Processing options: #{options}" if(debug)
