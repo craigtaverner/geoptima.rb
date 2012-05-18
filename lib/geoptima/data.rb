@@ -12,7 +12,7 @@ module Geoptima
   SPERDAY = 60*60*24
   MSPERDAY = 1000*60*60*24
   SHORT = 256*256
-  MIN_DATETIME = DateTime.parse("2000-01-01")
+  MIN_DATETIME = DateTime.parse("1970-01-01")
   MAX_DATETIME = DateTime.parse("2040-01-01")
 
   class Config
