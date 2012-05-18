@@ -1,10 +1,14 @@
 #!/usr/bin/env ruby
 
-require 'date'
+# useful if being run inside a source code checkout
+$: << 'lib'
+$: << '../lib'
 
-$root=DateTime.parse("1970-01-01 00:00:00")
-ARGV.each do |arg|
-  base,seconds=arg.split(/_/)
-  date = ($root + seconds.to_f/(60*60*24))
-  puts "#{date}\t#{arg}"
+require 'geoptima/version'
+require 'geoptima/file_time'
+
+Geoptima::assert_version(">=0.1.7")
+
+ARGV.each do |filename|
+  puts "#{(filename.to_s+" "*40)[0..40]} -->   #{Geoptima::FileTime.from_file filename}"
 end
