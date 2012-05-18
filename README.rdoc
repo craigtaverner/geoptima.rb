@@ -1,6 +1,8 @@
 == Welcome to geoptima.rb
 
-Geoptima is a suite of applications for measuring and locating mobile/cellular subscriber experience on GPS enabled smartphones. It is produced by AmanziTel AB in Helsingborg, Sweden, and supports many phone manufacturers, with free downloads from the various app stores, markets or marketplaces. This Ruby library is only capable of reading the JSON format files priduced by these phones and reformating them as CSV for further analysis in Excel. This is a simple and independent way of analysing the data, when compared to the full-featured analysis applications and servers available from AmanziTel. If you want to analyse a limited amount of data in excel, or with Ruby, then this GEM might be for you. If you want to analyse large amounts of data, from many subscribers, or over long periods of time then rather consider the NetView and Customer IQ applications from AmanziTel at www.amanzitel.com.
+Geoptima is a suite of applications for measuring and locating mobile/cellular subscriber experience on GPS enabled smartphones. It is produced by AmanziTel AB in Helsingborg, Sweden, and supports many phone manufacturers, with free downloads from the various app stores, markets or marketplaces. This Ruby library is capable of reading the JSON format files produced by these phones and reformating them as CSV for further analysis in Excel. This is a simple and independent way of analysing the data, when compared to the full-featured analysis applications and servers available from AmanziTel. If you want to analyse a limited amount of data in excel, or with Ruby, then this GEM might be for you. If you want to analyse large amounts of data, from many subscribers, or over long periods of time then rather consider the NetView and Customer IQ applications from AmanziTel at www.amanzitel.com.
+
+More recent versions of this script, since about 0.1.0, have been able to perform statistics and generate charts. See below for the csv_chart script usage.
 
 For more information on Geoptima refer to:
 * {AmanziTel}[http://www.amanzitel.com] - for commercial applications and platforms supporting Geoptima
@@ -18,29 +20,34 @@ This script imports the JSON files on the command-line and then:
 * Optionally prints out all events on the console for visual inspection (using the -p option)
 * Optionally prints out all events to files in CSV format with merging of event types and fields into a single header for further processing with Excel or OpenOffice (using the -x option)
 * The CSV export mode has many further options for exporting to multiple files (-s), merging IMEI's into single dataset (-a), long headers with repeated information (-l), etc.
+* Configuration of the export format (static columns and header names) is possible with the -l and -M options
 
 Which event types to include and various other options are available using the command-line. Run it with the -h option to get a full list of options. The current version should support:
 
-  Usage: show_geoptima <-dpvxomlsah> <-L limit> <-E types> <-T min,max> file <files>
+  Usage: show_geoptima <-dwvpxomlsafh> <-P export_prefix> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
   -d  debug mode (output more context during processing) (false)
+  -w  verbose mode (output extra information to console) 
+  -v  print geoptima library version 0.1.7
   -p  print mode (print out final results to console) 
-  -v  verbose mode (output extra information to console) 
   -x  export IMEI specific CSV files for further processing 
   -o  export field statistis 
   -m  map headers to classic NetView compatible version 
   -l  longer header list (phone and operator fields) 
   -s  seperate the export files by event type 
   -a  combine all IMEI's into a single dataset 
+  -f  flush stdout 
   -h  show this help
+  -P  prefix for exported files (default: ''; current: )
   -E  comma-seperated list of event types to show and export (default: all; current: )
   -T  time range to limit results to (default: all; current: )
   -L  limit verbose output to specific number of lines (10000)
+  -M  mapfile of normal->altered header names: 
 
 Currently the script also locates events that are close enough in time to GPS events. We hope to improve this with interpolation in the near future to be more compatible with the results from the commercial solutions. This time-window is also used for some of the extended header information, like LAC and CI, and effectively duplicates those fields from their own events to others. Take this into account when doing statistics on the results. It is better to use the original values, not the duplicates, if you want reliable statistics.
 
 ==== csv_stats
 
-This script reads any CSV file and outputs histograms of the values for each column. These can be manually imported into a spreadsheet or charting program for further analysis or charting.
+This script reads any CSV file and outputs histograms of the values for each column. These can be manually imported into a spreadsheet or charting program for further analysis or charting. This script is to a large extent superceded by the csv_chart script which both calculates stats as well as generates charts of the results.
 
 ==== csv_charts
 
@@ -120,8 +127,10 @@ https://github.com/craigtaverner/geoptima.rb/blob/master/images/Chart_All_Call%2
 === Installation
 
 Two options:
-* As a RubyGem: jruby -S gem install geoptima
+* As a RubyGem: gem install geoptima json
 * From source: git clone git@github.com:craigtaverner/geoptima.rb.git
+
+If you install without the json gem you will get a working library but not well optimized for JSON parsing. To install the json gem you need the minimal build environment for installing C code gems. On Linux and Mac this is usually already the case (or fix with 'apt-get install build-essential'). On windows you need to install the DevKit. See below for windows specific installation instructions.
 
 When installing the ruby gem you get the commands like 'show_geoptima' and 'csv_charts' in the path. However, if you install from source, you instead get them as examples/show_geoptima.rb.
 
@@ -131,13 +140,23 @@ When installing the ruby gem you get the commands like 'show_geoptima' and 'csv_
 
 This should produce a file called 357841036600753.csv containing a CSV version of the Geoptima events for importing into Excel or OpenOffice.Calc for further processing. The number is the IMEI of the phone used, and if you process many JSON files in one go, you will get as many output files as there are phones represented by the data.
 
-The examples directory also contains a number of sample *.spec files for the csv_chart command.
+The examples directory also contains a number of sample *.spec files for the csv_chart command. In order for csv_chart to be able to generate charts, you need to also install a supported chart library. We have planned support for various charting libraries, but at the moment only support GRUFF. For installation of GRUFF, see below.
 
 ==== Installing on Windows
 
 For windows use the RubyInstaller at http://rubyinstaller.org/
 
-To get chart support working you will probably need to install the DevKit as described on https://github.com/oneclick/rubyinstaller/wiki/Development-Kit
+To get the optimized json gem installed, or to get chart support working you will need to install the DevKit as described on https://github.com/oneclick/rubyinstaller/wiki/Development-Kit. Please follow those instructions carefully as they are not entirely trivial.
+
+==== Running on Windows
+
+The best way to run on windows is to edit your system path (usually go to 'my computer->properties->advanced->environment), and add the path to your ruby bin directory (usually C:\Ruby\bin) to the end of the system PATH. After that, open a command-prompt (start->cmd.exe) and type 'ruby -v' to see that it worked. Then you can execute the 'gem install' commands and the 'show_geoptima' commands from this console.
+
+==== Installing Gruff for Charting
+
+In order to support charting, you need to install Gruff (see http://nubyonrails.com/pages/gruff). This depends on image-magick, so you need to install that first. Please refer to the installation instructions specific to your OS. On Ubuntu the following should  work:
+  apt-get install imagemagick libmagickcore-dev
+  gem install rmagick
 
 === Contributing
 
