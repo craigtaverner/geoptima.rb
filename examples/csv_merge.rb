@@ -9,7 +9,7 @@ require 'geoptima/options'
 require 'fileutils'
 require 'geoptima/daterange'
 
-Geoptima::assert_version("0.1.6")
+Geoptima::assert_version(">=0.1.6")
 
 $export_dir = '.'
 $export_name = 'merged.csv'
