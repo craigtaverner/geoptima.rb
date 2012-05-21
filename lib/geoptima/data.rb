@@ -226,7 +226,7 @@ module Geoptima
       @first = nil
       @last = nil
       events_data.each do |event_type,data|
-        if data.length > 1
+        if data.length > 0
           @first ||= data[0]
           @last ||= data[-1]
           @first = data[0] if(@first && @first.time > data[0].time)
