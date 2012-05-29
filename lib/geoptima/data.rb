@@ -33,9 +33,34 @@ module Geoptima
     end
   end
 
+  module ErrorCounter
+    attr_reader :errors
+    def errors
+      @errors ||= {}
+    end
+    def incr_error(name)
+      errors[name] ||= 0
+      errors[name] += 1
+    end
+    def combine_errors(other)
+      puts "Combining errors(#{other.class}:#{other.errors.inspect}) into self(#{self.class}:#{errors.inspect})" if($debug)
+      other.errors.keys.each do |name|
+        errors[name] = errors[name].to_i + other.errors[name].to_i
+      end
+    end
+    def report_errors(prefix=nil)
+      if errors && errors.keys.length > 0
+        puts "#{prefix}Have #{errors.keys.length} known errors in #{self}:"
+        errors.keys.sort.each do |name|
+          puts "#{prefix}\t#{name}:\t#{errors[name]}"
+        end
+      end
+    end
+  end
+
   # The Geoptima::Event class represents and individual record or event
   class Event
-    KNOWN_HEADERS={
+    KNOWN_HEADERS = {
       "gps" => ["timeoffset","latitude","longitude","altitude","accuracy","direction","speed"],
       "service" => ["timeoffset","plmn","cell_id","lac","mnc","mcc"],
       "call" => ["timeoffset","status","number"],
@@ -48,8 +73,27 @@ module Geoptima
       "httpRequest" => ["timeoffset","interface","address","delay","speed"],
       "dnsLookup" => ["timeoffset","interface","address","lookupTime","ip"],
       "ftpSpeed" => ["timeoffset","interface","direction","delay","peak","speed"],
-      "browserDedicatedTest" => ["timeoffset","url","pageRenders","pageRendered","pageSize","success"]
+      "browserDedicatedTest" => ["timeoffset","url","pageRenders","pageRendered","pageSize","success"],
+      "pingTest" => ["timeoffset","interface","address","count","length","pingTime","packetLossPercent","jitter","error"]
     }
+    HEADER_BUGS = {
+      'ftpSpeed' => '#4303',
+      'pingTest' => '#4509'
+    }
+    ALT_HEADERS = {
+      "pingTest" => [
+        ["timeoffset","interface","address","count","length","pingTime","packetLossPercent","jitter","error"],
+        ["timeoffset","id","interface","address","count","length","pingTime","packetLossPercent","jitter","error"]
+      ],
+      "ftpSpeed" => [
+        ["timeoffset","interface","direction","delay","speed"],
+        ["timeoffset","interface","direction","delay","peak","speed"],
+        ["timeoffset","interface","direction","delay","peak","speed","error"],
+        ["timeoffset","interface","direction","delay","peak","speed","size","error"]
+      ]
+    }
+
+    include ErrorCounter
     attr_reader :file, :header, :name, :data, :fields, :time, :latitude, :longitude
     def initialize(file,start,name,header,data)
       @file = file
@@ -60,11 +104,17 @@ module Geoptima
         a[v] = check_field(@data[a.length])
         a
       end
-      @time = start + (@fields['timeoffset'].to_f / MSPERDAY.to_f)
+      timeoffset = (@fields['timeoffset'].to_f / MSPERDAY.to_f)
+      if(timeoffset<-0.0000001)
+        puts "Have negative time offset: #{@fields['timeoffset']}" if($debug)
+        incr_error "#4506 negative offsets"
+      end
+      @time = start + timeoffset
       @fields.reject!{|k,v| k=~/timeoffset/}
       if @fields['cell_id'].to_i > SHORT
         @fields['cell_id'] = @fields['cell_id'].to_i % SHORT
       end
+      incr_error "Empty data" if(data.length == 0)
       puts "Created Event: #{self}" if($debug)
     end
     def check_field(field)
@@ -102,12 +152,14 @@ module Geoptima
 
   # The Geoptima::Data is an entire JSON file of events
   class Data
+    include ErrorCounter
     attr_reader :path, :json, :count
     def initialize(path)
       @path = path
 #      @json = JSON.parse(File.read(path))
       @json = MultiJson.decode(File.read(path))
       @fields = {}
+      @errors = {}
       if $debug
         puts "Read Geoptima: #{geoptima.to_json}"
         puts "\tSubscriber: #{subscriber.to_json}"
@@ -117,6 +169,10 @@ module Geoptima
         puts "\tMNC: #{self['MNC']}"
         puts "\tStart: #{start}"
       end
+    end
+    def incr_error(name)
+      @errors[name] ||= 0
+      @errors[name] += 1
     end
     def to_s
       json.to_json[0..100]
@@ -193,6 +249,16 @@ module Geoptima
           if mismatch != 0
             puts "'#{event_type}' header length #{header.length} incompatible with data length #{events.length}"
             header = nil
+            incr_error "Metadata mismatch"
+            if Event::ALT_HEADERS.keys.grep(event_type).length>0
+              incr_error "#{Event::HEADER_BUGS[event_type]} #{event_type}"
+              [Event::KNOWN_HEADERS[event_type],*(Event::ALT_HEADERS[event_type])].each do |alt_header|
+                if alt_header && (events.length % alt_header.length) == 0
+                  header = alt_header
+                  puts "Found alternative header that matches #{event_type}: #{header.join(',')}"
+                end
+              end
+            end
           end
         else
           puts "No header found for event type: #{event_type}"
@@ -204,9 +270,12 @@ module Geoptima
             record = events[index...(index+header.length)]
             if record && record.length == header.length
               @count += 1
-              a << Event.new(self,start,event_type,header,record)
+              event = Event.new(self,start,event_type,header,record)
+              combine_errors event
+              a << event
             else
               puts "Invalid '#{event_type}' data block #{block}: #{record.inspect}"
+              incr_error "Invalid data block"
               break a
             end
           end
@@ -226,7 +295,7 @@ module Geoptima
       @first = nil
       @last = nil
       events_data.each do |event_type,data|
-        if data.length > 1
+        if data.length > 0
           @first ||= data[0]
           @last ||= data[-1]
           @first = data[0] if(@first && @first.time > data[0].time)
@@ -243,6 +312,7 @@ module Geoptima
 
   class Dataset
 
+    include ErrorCounter
     attr_reader :name, :options
 
     def initialize(name,options={})
@@ -409,6 +479,7 @@ module Geoptima
                 event_hash[key] = event
               end
             end
+            combine_errors data
           end
           puts "After adding #{name} events, maps are #{event_hash.length} long" if($debug)
         end

@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.6")
+Geoptima::assert_version(">=0.1.9")
 
 $debug=false
 
@@ -297,6 +297,7 @@ $datasets.keys.sort.each do |imei|
   if $verbose
     puts "\tFirst Event: #{dataset.first}"
     puts "\tLast Event:  #{dataset.last}"
+    dataset.report_errors "\t"
   end
   if events && ($print || $export)
     names = $event_names
