@@ -24,6 +24,8 @@ $files = Geoptima::Options.process_args do |option|
   option.m {$map_headers = true}
   option.a {$combine_all = true}
   option.l {$more_headers = true}
+  option.e {$show_error_stats = true}
+  option.g {$export_gpx = true}
   option.P {$export_prefix = ARGV.shift}
   option.E {$event_names += ARGV.shift.split(/[\,\;\:\.]+/)}
   option.T {$time_range = Geoptima::DateRange.from ARGV.shift}
@@ -108,7 +110,7 @@ exit 0 if($print_version && !$verbose)
 $help = true if($files.length < 1)
 if $help
   puts <<EOHELP
-Usage: show_geoptima <-dwvpxomlsafh> <-P export_prefix> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
+Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
   -d  debug mode (output more context during processing) #{cw $debug}
   -w  verbose mode (output extra information to console) #{cw $verbose}
   -v  print geoptima library version #{Geoptima::VERSION}
@@ -120,6 +122,8 @@ Usage: show_geoptima <-dwvpxomlsafh> <-P export_prefix> <-L limit> <-E types> <-
   -s  seperate the export files by event type #{cw $seperate}
   -a  combine all IMEI's into a single dataset #{cw $combine_all}
   -f  flush stdout #{cw $flush_stdout}
+  -e  show error statistics #{cw $show_error_stats}
+  -g  export GPX traces #{cw $export_gpx}
   -h  show this help
   -P  prefix for exported files (default: ''; current: #{$export_prefix})
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})
@@ -288,12 +292,21 @@ end
 
 puts "Found #{$datasets.length} datasets: #{$datasets.values.join('; ')}"
 
+if $show_error_stats
+  $datasets.keys.sort.each do |imei|
+    dataset = $datasets[imei]
+    events = dataset.sorted # required to get the errors count
+    puts "Found #{dataset.errors.keys.length} errors in #{dataset.description}"
+    dataset.report_errors
+  end
+end
+
 $datasets.keys.sort.each do |imei|
   dataset = $datasets[imei]
   imsi = dataset.imsi
   events = dataset.sorted
   puts if($print)
-  puts "Found #{dataset.description}"
+  puts "Found #{dataset.description}" if($verbose || $print || $export)
   if $verbose
     puts "\tFirst Event: #{dataset.first}"
     puts "\tLast Event:  #{dataset.last}"

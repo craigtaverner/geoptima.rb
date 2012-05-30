@@ -235,6 +235,7 @@ module Geoptima
       geoptima['events'].each do |data|
         events = data['values']
         event_type = data.keys.reject{|k| k=~/values/}[0]
+        event_count = data[event_type]
         header = @events_metadata[event_type]
         # If the JSON is broken (known bug on some releases of the iPhone app)
         # Then get the header information from a list of known headers
@@ -245,17 +246,26 @@ module Geoptima
         end
         # Double-check the header length matches a multiple of the data length
         if header
-          mismatch = events.length % header.length
-          if mismatch != 0
-            puts "'#{event_type}' header length #{header.length} incompatible with data length #{events.length}"
+          mismatch_records = events.length - header.length * event_count
+          if mismatch_records != 0
+            puts "'#{event_type}' header length #{header.length} incompatible with data length #{events.length} and record count #{event_count}"
             header = nil
             incr_error "Metadata mismatch"
             if Event::ALT_HEADERS.keys.grep(event_type).length>0
               incr_error "#{Event::HEADER_BUGS[event_type]} #{event_type}"
               [Event::KNOWN_HEADERS[event_type],*(Event::ALT_HEADERS[event_type])].each do |alt_header|
-                if alt_header && (events.length % alt_header.length) == 0
-                  header = alt_header
-                  puts "Found alternative header that matches #{event_type}: #{header.join(',')}"
+                puts "Trying alternative header: #{alt_header.inspect}" if($debug)
+                if alt_header && (events.length == alt_header.length * event_count)
+                  puts "\tAlternative header length matches: #{alt_header.inspect}" if($debug)
+                  records_valid = (0...[10,event_count].min).inject(true) do |vt,ri|
+                    timeoffset = events[ri*alt_header.length]
+                    vt &&= timeoffset.is_a?(Fixnum)
+                  end
+                  if records_valid
+                    header = alt_header
+                    puts "Found alternative header that matches #{event_type}: #{header.join(',')}"
+                    break
+                  end
                 end
               end
             end
