@@ -94,8 +94,8 @@ module Geoptima
     }
 
     include ErrorCounter
-    attr_reader :file, :header, :name, :data, :fields, :time, :latitude, :longitude
-    def initialize(file,start,name,header,data)
+    attr_reader :file, :header, :name, :data, :fields, :time, :latitude, :longitude, :timeoffset
+    def initialize(file,start,name,header,data,previous=nil)
       @file = file
       @name = name
       @header = header
@@ -104,10 +104,19 @@ module Geoptima
         a[v] = check_field(@data[a.length])
         a
       end
-      timeoffset = (@fields['timeoffset'].to_f / MSPERDAY.to_f)
-      if(timeoffset<-0.0000001)
+      @timeoffset = (@fields['timeoffset'].to_f / MSPERDAY.to_f)
+      if(@timeoffset<-0.0000001)
         puts "Have negative time offset: #{@fields['timeoffset']}" if($debug)
         incr_error "#4506 negative offsets"
+      end
+      if previous
+        prev_to = previous.timeoffset
+        puts "Comparing timeoffset:#{timeoffset} to previous:#{prev_to}" if($debug)
+        if @timeoffset == prev_to
+          puts "Found the same timeoffset in consecutive events: #{name}:#{timeoffset} == #{previous.name}:#{previous.timeoffset}"
+          incr_error "#4576 same timeoffset"
+          @timeoffset = @timeoffset + 1.0 / MSPERDAY.to_f
+        end
       end
       @time = start + timeoffset
       @fields.reject!{|k,v| k=~/timeoffset/}
@@ -235,7 +244,7 @@ module Geoptima
       geoptima['events'].each do |data|
         events = data['values']
         event_type = data.keys.reject{|k| k=~/values/}[0]
-        event_count = data[event_type]
+        event_count = data[event_type].to_i
         header = @events_metadata[event_type]
         # If the JSON is broken (known bug on some releases of the iPhone app)
         # Then get the header information from a list of known headers
@@ -249,9 +258,14 @@ module Geoptima
           mismatch_records = events.length - header.length * event_count
           if mismatch_records != 0
             puts "'#{event_type}' header length #{header.length} incompatible with data length #{events.length} and record count #{event_count}"
+            proposed_header = header
             header = nil
             incr_error "Metadata mismatch"
-            if Event::ALT_HEADERS.keys.grep(event_type).length>0
+            if events.length == proposed_header.length * event_count * 2 && event_type == 'roundtrip'
+              incr_error "#4593 iPhone roundtrip event counts"
+              event_count *= 2
+              header = proposed_header
+            elsif Event::ALT_HEADERS.keys.grep(event_type).length>0
               incr_error "#{Event::HEADER_BUGS[event_type]} #{event_type}"
               [Event::KNOWN_HEADERS[event_type],*(Event::ALT_HEADERS[event_type])].each do |alt_header|
                 puts "Trying alternative header: #{alt_header.inspect}" if($debug)
@@ -275,13 +289,14 @@ module Geoptima
         end
         # Now process the single long data array into a list of events with timestamps
         if header
-          events_data[event_type] = (0...data[event_type].to_i).inject([]) do |a,block|
+          events_data[event_type] = (0...event_count).inject([]) do |a,block|
             index = header.length * block
             record = events[index...(index+header.length)]
             if record && record.length == header.length
               @count += 1
-              event = Event.new(self,start,event_type,header,record)
+              event = Event.new(self,start,event_type,header,record,a[-1])
               combine_errors event
+              puts "About to add new event #{event} to existing list of #{a.length} events (previous: #{a[-1] && a[-1].time})" if($debug)
               a << event
             else
               puts "Invalid '#{event_type}' data block #{block}: #{record.inspect}"
