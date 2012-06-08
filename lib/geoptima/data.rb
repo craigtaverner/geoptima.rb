@@ -33,6 +33,75 @@ module Geoptima
     end
   end
 
+  class Trace
+    attr_reader :dataset, :name, :tracename, :bounds, :events
+    def initialize(dataset)
+      @dataset = dataset
+      @name = dataset.name
+      @events = []
+    end
+    def <<(e)
+      @tracename ||= "#{name}-#{e.time}"
+      check_bounds(e)
+      @events << e unless(co_located(e,@events[-1]))
+    end
+    def co_located(event,other)
+      event && other && event.latitude == other.latitude && event.longitude == other.longitude
+    end
+    def length
+      events.length
+    end
+    def to_s
+      tracename || name
+    end
+    def check_bounds(e)
+      @bounds ||= {}
+      check_bounds_min :minlat, e.latitude
+      check_bounds_min :minlon, e.longitude
+      check_bounds_max :maxlat, e.latitude
+      check_bounds_max :maxlon, e.longitude
+    end
+    def check_bounds_min(key,value)
+      @bounds[key] = value if(@bounds[key].nil? || @bounds[key] > value)
+    end
+    def check_bounds_max(key,value)
+      @bounds[key] = value if(@bounds[key].nil? || @bounds[key] < value)
+    end
+    def each
+      events.each{|e| yield e}
+    end
+    def too_far(other)
+      events && events[-1] && (events[-1].days_from(other) > 0.5 || events[-1].distance_from(other) > 0.002)
+    end
+    def bounds_as_gpx
+      "<bounds " + bounds.keys.map{|k| "#{k}=\"#{bounds[k]}\""}.join(' ') + "/>"
+    end
+    def event_as_gpx(e,index)
+      "<trkpt lat=\"#{e.latitude}\" lon=\"#{e.longitude}\"><ele>#{index}</ele><time>#{e.time}</time></trkpt>"
+    end
+    def as_gpx
+      ei = 0
+      gpx = %{<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="geoptima.rb - Craig Taverner">
+  <metadata>
+    #{bounds_as_gpx}
+  </metadata>
+  <trk>
+    <name>#{tracename}</name>
+    <trkseg>
+      } +
+      events.map do |e|
+        ei += 1
+        event_as_gpx(e,ei)
+      end.join("\n      ") +
+      """
+    </trkseg>
+  </trk>
+</gpx>
+"""
+    end
+  end
+
   module ErrorCounter
     attr_reader :errors
     def errors
@@ -134,6 +203,12 @@ module Geoptima
     end
     def time_key
       utc.strftime("%Y-%m-%d %H:%M:%S.%3N").gsub(/\.(\d{3})\d+/,'.\1')
+    end
+    def days_from(other)
+      (other.time - time).abs
+    end
+    def distance_from(other)
+      Math.sqrt((other.latitude.to_f - latitude.to_f)**2 + (other.longitude.to_f - longitude.to_f)**2)
     end
     def [](key)
       @fields[key] || @fields[key.gsub(/#{name}\./,'')]
@@ -514,6 +589,20 @@ module Geoptima
         locate_events if(options[:locate])
       end
       @sorted
+    end
+
+    def each_trace
+      puts "Exporting GPX traces"
+      trace = nil
+      sorted('gps').each do |gps|
+        trace ||= Trace.new(self)
+        if trace.too_far(gps)
+          yield trace
+          trace = Trace.new(self)
+        end
+        trace << gps
+      end
+      yield trace if(trace)
     end
 
     def locate_events

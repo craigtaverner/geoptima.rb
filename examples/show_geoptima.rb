@@ -258,6 +258,12 @@ class Export
       end
     end
   end
+  def export_gpx(trace)
+    File.open("#{$export_prefix}#{trace}.gpx",'w') do |out|
+      puts "Exporting #{trace.length} GPS events to trace: #{trace}"
+      out.puts trace.as_gpx
+    end
+  end
   def header(name=nil)
     @headers[name]
   end
@@ -317,6 +323,11 @@ $datasets.keys.sort.each do |imei|
     names = dataset.events_names if(names.length<1)
     export = Export.new(imei,names,dataset)
     export.export_stats(dataset.stats) if($export_stats)
+    if $export_gpx
+      dataset.each_trace do |trace|
+        export.export_gpx(trace)
+      end
+    end
     if $header_maps && $header_maps.length > 0
       $header_maps.each do |hm|
         puts "Searching for events for header_maps '#{hm.event}'"
