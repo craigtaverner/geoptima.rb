@@ -3,6 +3,11 @@
 require 'rubygems'
 require 'multi_json'
 require 'geoptima/daterange'
+begin
+  require 'png'
+rescue
+  puts "No PNG library installed, ignoring PNG output of GPX results"
+end
 
 #
 # The Geoptima Module provides support for the Geoptima Client JSON file format
@@ -34,7 +39,7 @@ module Geoptima
   end
 
   class Trace
-    attr_reader :dataset, :name, :tracename, :bounds, :events
+    attr_reader :dataset, :name, :tracename, :bounds, :events, :scale, :padding
     def initialize(dataset)
       @dataset = dataset
       @name = dataset.name
@@ -60,6 +65,8 @@ module Geoptima
       check_bounds_min :minlon, e.longitude
       check_bounds_max :maxlat, e.latitude
       check_bounds_max :maxlon, e.longitude
+      @width = nil
+      @height = nil
     end
     def check_bounds_min(key,value)
       @bounds[key] = value if(@bounds[key].nil? || @bounds[key] > value)
@@ -69,6 +76,46 @@ module Geoptima
     end
     def each
       events.each{|e| yield e}
+    end
+    def scale=(a)
+      @rescaled = false
+      @scale = a && (a.respond_to?('max') ? a : [a.to_i,a.to_i]) || [100,100]
+    end
+    def padding=(a)
+      @padding = a && (a.respond_to?('max') ? a : [a.to_i,a.to_i]) || [0,0]
+    end
+    def size
+      @size = [scale[0]+2*padding[0],scale[1]+2*padding[1]]
+    end
+    def scale
+      @scale ||= [100,100]
+      unless @rescaled
+        major,minor = (width > height) ? [0,1] : [1,0]
+        puts "About to rescale scale=#{@scale.inspect} using major=#{major}, minor=#{minor}, height=#{height}, width=#{width}" if($debug)
+        @scale[minor] = (@scale[major].to_f * height / width).to_i
+        @rescaled = true
+      end
+      @scale
+    end
+    def width
+      @width ||= @bounds[:maxlon].to_f - @bounds[:minlon].to_f
+    end
+    def height
+      @height ||= @bounds[:maxlat].to_f - @bounds[:minlat].to_f
+    end
+    def left
+      @left ||= @bounds[:minlon].to_f
+    end
+    def bottom
+      @bottom ||= @bounds[:minlat].to_f
+    end
+    def scale_event(e)
+      p = [e.longitude.to_f, e.latitude.to_f]
+      if scale
+        p[0] = padding[0] + ((p[0] - left) * (scale[0].to_f - 1) / (width)).to_i
+        p[1] = padding[1] + ((p[1] - bottom) * (scale[1].to_f - 1) / (height)).to_i
+      end
+      p
     end
     def too_far(other)
       events && events[-1] && (events[-1].days_from(other) > 0.5 || events[-1].distance_from(other) > 0.002)
@@ -90,15 +137,118 @@ module Geoptima
     <name>#{tracename}</name>
     <trkseg>
       } +
-      events.map do |e|
-        ei += 1
-        event_as_gpx(e,ei)
-      end.join("\n      ") +
+      traces.map do |trace|
+        trace.events.map do |e|
+          ei += 1
+          event_as_gpx(e,ei)
+        end.join("\n      ")
+      end.join("\n      </trkseg><trkseg>") +
       """
     </trkseg>
   </trk>
 </gpx>
 """
+    end
+    def fix_options(options={})
+      options.keys.each do |key|
+        val = options[key]
+        if val.to_s =~ /false/i
+          val = false
+        elsif val != true && val.to_i.to_s == val
+          val = val.to_i
+        end
+        options[key] = val
+      end
+    end
+    def traces
+      [self]
+    end
+    def colors
+      @colors ||= PNG::Color.constants.reject{|c| (c.is_a?(PNG::Color)) || c.to_s =~ /max/i || c.to_s =~ /background/i}.map{|c| PNG::Color.const_get c}.reject{|c| c == PNG::Color::Background}
+    end
+    def color(index=1)
+      self.colors[index%(self.colors.length)]
+    end
+    def to_png(filename, options={})
+      fix_options options
+      puts "Exporting with options: #{options.inspect}"
+      self.scale = options['scale']
+      self.padding = options['padding']
+      ['scale','padding','size','bounds','width','height'].each do |a|
+        puts "\t#{a}: #{self.send(a).inspect}"
+      end
+      canvas = PNG::Canvas.new size[0],size[1]
+
+      traces.each_with_index do |trace,index|
+        prev = nil
+        point_color = color(index)
+        line_color = PNG::Color.from "0x00006688"
+        if options['point_color'] && !(options['point_color'] =~ /auto/i)
+          pc = options['point_color'].gsub(/^\#/,'').gsub(/^0x/,'').upcase
+          pc = "0x#{pc}FFFFFFFF"[0...10]
+          begin
+            point_color = PNG::Color.from pc
+          rescue
+            puts "Failed to interpret color #{pc}, use format 0x00000000: #{$!}"
+          end
+        end
+        puts "Got point color #{point_color} from index #{index}"
+        trace.events.each do |e|
+          p = scale_event(e)
+          begin
+            # draw an anti-aliased line
+            if prev && prev != p
+              canvas.line prev[0], prev[1], p[0], p[1], line_color
+            end
+
+            if options['points']
+              # Set a point to a color
+              n = options['point_size'].to_i / 2
+              r = (-n..n)
+              r.each do |x|
+                r.each do |y|
+                  canvas[p[0]+x, p[1]-y] = point_color
+                end
+              end
+            end
+          rescue
+            puts "Error in writing PNG: #{$!}"
+          end
+
+          prev = p
+        end
+      end
+
+      png = PNG.new canvas
+      png.save filename
+    end
+  end
+
+  class MergedTrace < Trace
+    attr_reader :traces
+    def initialize(dataset)
+      @dataset = dataset
+      @name = dataset.name
+      @traces = []
+    end
+    def tracename
+      @tracename ||= "Merged-#{traces.length}-traces-#{traces[0]}"
+    end
+    def <<(t)
+      check_bounds(t)
+      @traces << t
+    end
+    def length
+      @length ||= traces.inject(0){|a,t| a+=t.length;a}
+    end
+    def check_bounds(t)
+      @bounds ||= {}
+      check_bounds_min :minlat, t.bounds[:minlat]
+      check_bounds_min :minlon, t.bounds[:minlon]
+      check_bounds_max :maxlat, t.bounds[:maxlat]
+      check_bounds_max :maxlon, t.bounds[:maxlon]
+      @width = nil
+      @height = nil
     end
   end
 
@@ -174,6 +324,7 @@ module Geoptima
         a
       end
       @timeoffset = (@fields['timeoffset'].to_f / MSPERDAY.to_f)
+      @time = start + timeoffset # Note we set this again later after corrections (need it now for puts output)
       if(@timeoffset<-0.0000001)
         puts "Have negative time offset: #{@fields['timeoffset']}" if($debug)
         incr_error "#4506 negative offsets"
@@ -229,6 +380,9 @@ module Geoptima
     def locate_if_closer_than(gps,seconds=60)
       locate(gps) if(closer_than(gps,seconds))
     end
+    def puts line
+      Kernel.puts "#{name}[#{time}]: #{line}"
+    end
     def to_s
       "#{name}[#{time}]: #{@fields.inspect}"
     end
@@ -237,9 +391,10 @@ module Geoptima
   # The Geoptima::Data is an entire JSON file of events
   class Data
     include ErrorCounter
-    attr_reader :path, :json, :count
+    attr_reader :path, :name, :json, :count
     def initialize(path)
       @path = path
+      @name = File.basename(path)
 #      @json = JSON.parse(File.read(path))
       @json = MultiJson.decode(File.read(path))
       @fields = {}
@@ -261,6 +416,9 @@ module Geoptima
     def to_s
       json.to_json[0..100]
     end
+    def puts line
+      Kernel.puts "#{name}: #{line}"
+    end
     def geoptima
       @geoptima ||= json['geoptima']
     end
@@ -272,6 +430,9 @@ module Geoptima
     end
     def imei
       @imei ||= self['imei']
+    end
+    def id
+      @id ||= self['id'] || self['udid'] || self['imei']
     end
     def [](key)
       @fields[key] ||= subscriber[key] || subscriber[key.downcase]
@@ -628,17 +789,39 @@ module Geoptima
       "Dataset:#{name}, IMEI:#{imeis.join(',')}, IMSI:#{imsis.join(',')}, Platform:#{platforms.join(',')}, Model:#{models.join(',')}, OS:#{oses.join(',')}, Files:#{file_count}, Events:#{sorted && sorted.length}"
     end
 
-    def self.make_datasets(files, options={})
-      datasets = {}
-      files.each do |file|
+    def self.add_file_to_datasets(datasets,file,options={})
+      if File.directory?(file)
+        add_directory_to_datasets(datasets,file,options)
+      else
         geoptima=Geoptima::Data.new(file)
         unless geoptima.valid?
           puts "INVALID: #{geoptima.start}\t#{file}\n\n"
         else
-          key = options[:combine_all] ? 'all' : geoptima['imei']
+          key = options[:combine_all] ? 'all' : geoptima.id
           datasets[key] ||= Geoptima::Dataset.new(key, options)
           datasets[key] << geoptima
         end
+      end
+    end
+
+    def self.add_directory_to_datasets(datasets,directory,options={})
+      Dir.open(directory).each do |file|
+        next if(file =~ /^\./)
+        path = "#{directory}/#{file}"
+        if File.directory? path
+          add_directory_to_datasets(datasets,path,options)
+        elsif file =~ /\.json/i
+          add_file_to_datasets(datasets,path,options)
+        else
+          puts "Ignoring files without JSON extension: #{path}"
+        end
+      end
+    end
+
+    def self.make_datasets(files, options={})
+      datasets = {}
+      files.each do |file|
+        add_file_to_datasets(datasets,file,options)
       end
       datasets
     end

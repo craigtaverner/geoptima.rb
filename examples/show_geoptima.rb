@@ -8,13 +8,18 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.9")
+Geoptima::assert_version(">=0.1.13")
 
 $debug=false
 
 $event_names=[]
 $files = []
 $print_limit = 10000
+$gpx_options = {
+  'scale' => 195, 'padding' => 5,
+  'limit' => 2, 'png_limit' => 10,
+  'points' => true, 'point_size' => 2, 'point_color' => '0000aa'
+}
 
 $files = Geoptima::Options.process_args do |option|
   option.p {$print = true}
@@ -26,11 +31,13 @@ $files = Geoptima::Options.process_args do |option|
   option.l {$more_headers = true}
   option.e {$show_error_stats = true}
   option.g {$export_gpx = true}
+  option.t {$split_time = true}
   option.P {$export_prefix = ARGV.shift}
   option.E {$event_names += ARGV.shift.split(/[\,\;\:\.]+/)}
   option.T {$time_range = Geoptima::DateRange.from ARGV.shift}
   option.L {$print_limit = [1,ARGV.shift.to_i].max}
   option.M {$mapfile = ARGV.shift}
+  option.G {$gpx_options.merge! ARGV.shift.split(/[\,\;]+/).inject({}){|a,v| k=v.split(/[\:\=]+/);a[k[0]]=k[1]||true;a}}
 end.map do |file|
   File.exist?(file) ? file : puts("No such file: #{file}")
 end.compact
@@ -124,12 +131,25 @@ Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> 
   -f  flush stdout #{cw $flush_stdout}
   -e  show error statistics #{cw $show_error_stats}
   -g  export GPX traces #{cw $export_gpx}
+  -t  split time colum to multiple columns #{cw $split_time}
   -h  show this help
   -P  prefix for exported files (default: ''; current: #{$export_prefix})
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})
   -T  time range to limit results to (default: all; current: #{$time_range})
   -L  limit verbose output to specific number of lines #{cw $print_limit}
   -M  mapfile of normal->altered header names: #{$mapfile}
+  -G  GPX export options as ';' separated list of key:value pairs
+      Current GPX options: #{$gpx_options.inspect}
+      Known supported GPX options (might be more, see data.rb code):
+        limit:#{$gpx_options['limit']}\tLimit GPX output to traces with at least this number of events
+        png_limit:#{$gpx_options['png_limit']}\tLimit PNG output to traces with at least this number of events
+        scale:#{$gpx_options['scale']}\tSize of print area in PNG output
+        padding:#{$gpx_options['padding']}\tSpace around print area
+        points:#{$gpx_options['points']}\tTurn on/off points
+        point_size:#{$gpx_options['point_size']}\tSet point size
+        point_color:#{$gpx_options['point_color']}\tSet point color: RRGGBBAA in hex
+      PNG images will be 'scale + 2 * padding' big. The scale will be used for
+      the widest dimension, and the other will be reduced to fit the trace.
 EOHELP
   show_header_maps
   exit 0
@@ -172,7 +192,7 @@ class Export
       if $header_maps
         file.puts $header_maps.find{|hm| hm.event == key}.columns.map{|c| c[0]}.join("\t")
       else
-        file.puts map_headers(base_headers+more_headers+header(key)).join("\t")
+        file.puts map_headers(time_headers+base_headers+more_headers+header(key)).join("\t")
       end
     end
     if $debug || $verbose
@@ -183,6 +203,17 @@ class Export
   end
   def export_imei
     ($combine_all || $more_headers)
+  end
+  def time_headers
+    $split_time ? ['Year','Month','Day','Hour','Minute','Second','Millisecond'] : []
+  end
+  def time_fields(event)
+    if $split_time
+      t = event.utc
+      [t.year,t.month,t.day,t.hour,t.minute,t.second,(t.second_fraction.to_f * 1000).to_i]
+    else
+      []
+    end
   end
   def base_headers
     ['Time','Event','Latitude','Longitude'] + 
@@ -223,9 +254,6 @@ class Export
       end
     end
   end
-  def get_field(event,name)
-    h=(base_headers+more_headers).grep(/#{name}/)
-  end
   def cap(array,sep="")
     array.map do |v|
       "#{v[0..0].upcase}#{v[1..-1]}"
@@ -263,6 +291,15 @@ class Export
       puts "Exporting #{trace.length} GPS events to trace: #{trace}"
       out.puts trace.as_gpx
     end
+  end
+  def export_png(trace)
+    puts "Exporting #{trace.length} GPS events to PNG: #{trace}"
+    if $verbose
+      puts "\tBounds: #{trace.bounds}"
+      puts "\tWidth: #{trace.width}"
+      puts "\tHeight: #{trace.height}"
+    end
+    trace.to_png "#{$export_prefix}#{trace}.png", $gpx_options
   end
   def header(name=nil)
     @headers[name]
@@ -324,8 +361,15 @@ $datasets.keys.sort.each do |imei|
     export = Export.new(imei,names,dataset)
     export.export_stats(dataset.stats) if($export_stats)
     if $export_gpx
+      merged_traces = Geoptima::MergedTrace.new(dataset)
       dataset.each_trace do |trace|
-        export.export_gpx(trace)
+        export.export_gpx(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
+        export.export_png(trace) if(trace.length>=($gpx_options['png_limit'] || 10).to_i)
+        merged_traces << trace if($gpx_options['merge'])
+      end
+      if($gpx_options['merge'])
+        export.export_gpx(merged_traces)
+        export.export_png(merged_traces)
       end
     end
     if $header_maps && $header_maps.length > 0
@@ -347,7 +391,7 @@ $datasets.keys.sort.each do |imei|
         names.each do |name|
           if event.name === name
             fields = export.header($seperate ? name : nil).map{|h| event[h]}
-            b_fields = export.base_fields(event) + export.more_fields(event,dataset)
+            b_fields = export.time_fields(event) + export.base_fields(event) + export.more_fields(event,dataset)
             export.puts_to "#{b_fields.join("\t")}\t#{fields.join("\t")}", name
             if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}"}
           end
