@@ -3,9 +3,10 @@
 require 'rubygems'
 require 'multi_json'
 require 'geoptima/daterange'
+require 'geoptima/locationrange'
 begin
   require 'png'
-rescue
+rescue LoadError
   puts "No PNG library installed, ignoring PNG output of GPX results"
 end
 
@@ -39,15 +40,23 @@ module Geoptima
   end
 
   class Trace
-    attr_reader :dataset, :name, :tracename, :bounds, :events, :scale, :padding
+    attr_reader :dataset, :data_id, :data_ids, :name, :tracename
+    attr_reader :bounds, :events, :totals, :scale, :padding
     def initialize(dataset)
       @dataset = dataset
+      @data_id = nil
+      @data_ids = []
       @name = dataset.name
       @events = []
     end
     def <<(e)
       @tracename ||= "#{name}-#{e.time}"
+      unless @data_id
+        @data_id ||= e.file.id
+        @data_ids << e.file.id
+      end
       check_bounds(e)
+      check_totals(e)
       @events << e unless(co_located(e,@events[-1]))
     end
     def co_located(event,other)
@@ -59,6 +68,12 @@ module Geoptima
     def to_s
       tracename || name
     end
+    def check_totals(e)
+      @totals ||= [0.0,0.0,0]
+      @totals[0] += e.latitude
+      @totals[1] += e.longitude
+      @totals[2] += 1
+    end
     def check_bounds(e)
       @bounds ||= {}
       check_bounds_min :minlat, e.latitude
@@ -69,7 +84,14 @@ module Geoptima
       @height = nil
     end
     def check_bounds_min(key,value)
-      @bounds[key] = value if(@bounds[key].nil? || @bounds[key] > value)
+      if value.is_a? String
+        raise "Passed a string value: #{value.inspect}"
+      end
+      begin
+        @bounds[key] = value if(@bounds[key].nil? || @bounds[key] > value)
+      rescue
+         raise "Failed to set bounds using current:#{@bounds.inspect}, value=#{value.inspect}"
+      end
     end
     def check_bounds_max(key,value)
       @bounds[key] = value if(@bounds[key].nil? || @bounds[key] < value)
@@ -108,6 +130,34 @@ module Geoptima
     end
     def bottom
       @bottom ||= @bounds[:minlat].to_f
+    end
+    def average
+      [totals[0] / totals[2], totals[1] / totals[2]]
+    end
+    def remove_outliers
+      if width > 0.1 || height > 0.1
+        distances = []
+        total_distance = 0.0
+        max_distance = 0.0
+        center = Point.new(*average)
+        self.each do |e|
+          distance = e.distance_from(center)
+          distances << [e,distance]
+          total_distance += distance
+          max_distance = distance if(max_distance < distance)
+        end
+        average_distance = total_distance / distances.length
+        threshold = max_distance / 3
+        if threshold > average_distance * 3
+          puts "Average distance #{average_distance} much less than max distance #{max_distance}, trimming all beyond #{threshold}"
+          @bounds = {}
+          distances.each do |d|
+            check_bounds(d[0]) if(d[1] < threshold)
+          end
+        else
+          puts "Average distance #{average_distance} not much less than max distance #{max_distance}, not trimming outliers"
+        end
+      end
     end
     def scale_event(e)
       p = [e.longitude.to_f, e.latitude.to_f]
@@ -164,7 +214,7 @@ module Geoptima
       [self]
     end
     def colors
-      @colors ||= PNG::Color.constants.reject{|c| (c.is_a?(PNG::Color)) || c.to_s =~ /max/i || c.to_s =~ /background/i}.map{|c| PNG::Color.const_get c}.reject{|c| c == PNG::Color::Background}
+      @colors ||= PNG::Color.constants.reject{|c| (c.is_a?(PNG::Color)) || c.to_s =~ /max/i || c.to_s =~ /background/i}.map{|c| PNG::Color.const_get c}.reject{|c| c == PNG::Color::Background || c == PNG::Color::Black || c == PNG::Color::White}
     end
     def color(index=1)
       self.colors[index%(self.colors.length)]
@@ -174,14 +224,24 @@ module Geoptima
       puts "Exporting with options: #{options.inspect}"
       self.scale = options['scale']
       self.padding = options['padding']
+      remove_outliers
       ['scale','padding','size','bounds','width','height'].each do |a|
         puts "\t#{a}: #{self.send(a).inspect}"
       end
-      canvas = PNG::Canvas.new size[0],size[1]
+      begin
+        canvas = PNG::Canvas.new size[0],size[1]
+      rescue
+        puts "Unable to initialize PNG:Canvas - is 'png' gem installed? #{$!}"
+        return
+      end
 
+      data_idm = data_ids.inject({}){|a,v| a[v]=a.length;a}
+      if data_ids.length > 1
+        data_ids.each do |did|
+          puts "Mapped data ID '#{did}' to color: #{color(data_idm[did])}"
+        end
+      end
       traces.each_with_index do |trace,index|
-        prev = nil
-        point_color = color(index)
         line_color = PNG::Color.from "0x00006688"
         if options['point_color'] && !(options['point_color'] =~ /auto/i)
           pc = options['point_color'].gsub(/^\#/,'').gsub(/^0x/,'').upcase
@@ -191,8 +251,15 @@ module Geoptima
           rescue
             puts "Failed to interpret color #{pc}, use format 0x00000000: #{$!}"
           end
+        elsif data_ids.length > 1
+          point_color = color(data_idm[trace.data_id])
+          puts "Got point color #{point_color} from data ID '#{trace.data_id}' index #{data_idm[trace.data_id]}" if($debug)
+        else
+          point_color = color(index)
+          puts "Got point color #{point_color} from trace index #{index}"
         end
-        puts "Got point color #{point_color} from index #{index}"
+
+        prev = nil
         trace.events.each do |e|
           p = scale_event(e)
           begin
@@ -229,19 +296,33 @@ module Geoptima
     def initialize(dataset)
       @dataset = dataset
       @name = dataset.name
+      @data_ids = []
       @traces = []
     end
     def tracename
       @tracename ||= "Merged-#{traces.length}-traces-#{traces[0]}"
     end
     def <<(t)
-      check_bounds(t)
+      check_trace_totals(t)
+      check_trace_bounds(t)
+      @data_ids = (@data_ids+t.data_ids).sort.uniq.compact
       @traces << t
+    end
+    def each
+      traces.each do |t|
+        t.events.each do |e|
+          yield e
+        end
+      end
     end
     def length
       @length ||= traces.inject(0){|a,t| a+=t.length;a}
     end
-    def check_bounds(t)
+    def check_trace_totals(t)
+      @totals ||= [0.0,0.0,0]
+      [0,1,2].each{|i| @totals[i] += t.totals[i]}
+    end
+    def check_trace_bounds(t)
       @bounds ||= {}
       check_bounds_min :minlat, t.bounds[:minlat]
       check_bounds_min :minlon, t.bounds[:minlon]
@@ -373,9 +454,14 @@ module Geoptima
     def closer_than(other,seconds=60)
       (self - other).abs < seconds
     end
+    def location
+      @location ||= self['latitude'] && Point.new(self['latitude'],self['longitude'])
+    end
     def locate(gps)
-      @latitude = gps['latitude']
-      @longitude = gps['longitude']
+      incr_error "GPS String Data" if(gps['latitude'].is_a? String)
+      @latitude = gps['latitude'].to_f
+      @longitude = gps['longitude'].to_f
+      @location = nil
     end
     def locate_if_closer_than(gps,seconds=60)
       locate(gps) if(closer_than(gps,seconds))
@@ -581,6 +667,7 @@ module Geoptima
       @data = []
       @options = options
       @time_range = options[:time_range] || DateRange.new(Config[:min_datetime],Config[:max_datetime])
+      @location_range = options[:location_range] || LocationRange.everywhere
       @fields = {}
     end
 
@@ -729,6 +816,7 @@ module Geoptima
         event_hash = {}
         puts "Creating sorted maps for #{self}" if($debug)
         events_names.each do |name|
+          is_gps = name == 'gps'
           puts "Preparing maps for #{name}" if($debug)
           @data.each do |data|
             puts "Processing #{(e=data.events[name]) && e.length} events for #{name}" if($debug)
@@ -736,8 +824,10 @@ module Geoptima
               puts "\t\tTesting #{event.time} inside #{@time_range}" if($debug)
               if @time_range.include?(event.time)
                 puts "\t\t\tEvent at #{event.time} is inside #{@time_range}" if($debug)
-                key = "#{event.time_key} #{name}"
-                event_hash[key] = event
+                if !is_gps || @location_range.nil? || @location_range.include?(event.location)
+                  key = "#{event.time_key} #{name}"
+                  event_hash[key] = event
+                end
               end
             end
             combine_errors data

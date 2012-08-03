@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.13")
+Geoptima::assert_version(">=0.1.14")
 
 $debug=false
 
@@ -16,7 +16,7 @@ $event_names=[]
 $files = []
 $print_limit = 10000
 $gpx_options = {
-  'scale' => 195, 'padding' => 5,
+  'scale' => 190, 'padding' => 5,
   'limit' => 2, 'png_limit' => 10,
   'points' => true, 'point_size' => 2, 'point_color' => '0000aa'
 }
@@ -35,6 +35,7 @@ $files = Geoptima::Options.process_args do |option|
   option.P {$export_prefix = ARGV.shift}
   option.E {$event_names += ARGV.shift.split(/[\,\;\:\.]+/)}
   option.T {$time_range = Geoptima::DateRange.from ARGV.shift}
+  option.B {$location_range = Geoptima::LocationRange.from ARGV.shift}
   option.L {$print_limit = [1,ARGV.shift.to_i].max}
   option.M {$mapfile = ARGV.shift}
   option.G {$gpx_options.merge! ARGV.shift.split(/[\,\;]+/).inject({}){|a,v| k=v.split(/[\:\=]+/);a[k[0]]=k[1]||true;a}}
@@ -136,20 +137,23 @@ Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> 
   -P  prefix for exported files (default: ''; current: #{$export_prefix})
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})
   -T  time range to limit results to (default: all; current: #{$time_range})
+  -B  location limited to specified bounds in formats
+      either minlat,minlon,maxlat,maxlon or minlat..maxlat,minlon..maxlon
+      (default: all; current: #{$location_range})
   -L  limit verbose output to specific number of lines #{cw $print_limit}
   -M  mapfile of normal->altered header names: #{$mapfile}
   -G  GPX export options as ';' separated list of key:value pairs
       Current GPX options: #{$gpx_options.inspect}
       Known supported GPX options (might be more, see data.rb code):
-        limit:#{$gpx_options['limit']}\tLimit GPX output to traces with at least this number of events
-        png_limit:#{$gpx_options['png_limit']}\tLimit PNG output to traces with at least this number of events
-        scale:#{$gpx_options['scale']}\tSize of print area in PNG output
-        padding:#{$gpx_options['padding']}\tSpace around print area
-        points:#{$gpx_options['points']}\tTurn on/off points
-        point_size:#{$gpx_options['point_size']}\tSet point size
-        point_color:#{$gpx_options['point_color']}\tSet point color: RRGGBBAA in hex
-      PNG images will be 'scale + 2 * padding' big. The scale will be used for
-      the widest dimension, and the other will be reduced to fit the trace.
+        limit:#{$gpx_options['limit']}\t\tLimit GPX output to traces with at least this number of events
+        png_limit:#{$gpx_options['png_limit']}\t\tLimit PNG output to traces with at least this number of events
+        scale:#{$gpx_options['scale']}\t\tSize of print area in PNG output
+        padding:#{$gpx_options['padding']}\t\tSpace around print area
+        points:#{$gpx_options['points']}\t\tTurn on/off points
+        point_size:#{$gpx_options['point_size']}\t\tSet point size
+        point_color:#{$gpx_options['point_color']}\tSet point color: RRGGBBAA in hex (else 'auto')
+        format:#{$gpx_options['format']}\t\tExport format: 'gpx', 'png', default 'all'
+      PNG images will be 'scale + 2 * padding' big (#{$gpx_options['scale'].to_i+2*$gpx_options['padding'].to_i} for current settings). The scale will be used for the widest dimension, and the other will be reduced to fit the actual size of the trace. The projection used is non, with the points simply mapped to their GPS locations. This will cause visual distortions far from the equator where dlat!=dlon.
 EOHELP
   show_header_maps
   exit 0
@@ -158,7 +162,7 @@ end
 $verbose = $verbose || $debug
 show_header_maps if($verbose)
 
-$datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range => $time_range, :combine_all => $combine_all)
+$datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range => $time_range, :location_range => $location_range, :combine_all => $combine_all)
 
 class Export
   attr_reader :files, :imei, :names, :headers
@@ -287,19 +291,23 @@ class Export
     end
   end
   def export_gpx(trace)
-    File.open("#{$export_prefix}#{trace}.gpx",'w') do |out|
-      puts "Exporting #{trace.length} GPS events to trace: #{trace}"
-      out.puts trace.as_gpx
+    if !($gpx_options['format'].to_s =~ /png/)
+      File.open("#{$export_prefix}#{trace}.gpx",'w') do |out|
+        puts "Exporting #{trace.length} GPS events to trace: #{trace}"
+        out.puts trace.as_gpx
+      end
     end
   end
   def export_png(trace)
-    puts "Exporting #{trace.length} GPS events to PNG: #{trace}"
-    if $verbose
-      puts "\tBounds: #{trace.bounds}"
-      puts "\tWidth: #{trace.width}"
-      puts "\tHeight: #{trace.height}"
+    if !($gpx_options['format'].to_s =~ /gpx/)
+      puts "Exporting #{trace.length} GPS events to PNG: #{trace}"
+      if $verbose
+        puts "\tBounds: #{trace.bounds}"
+        puts "\tWidth: #{trace.width}"
+        puts "\tHeight: #{trace.height}"
+      end
+      trace.to_png "#{$export_prefix}#{trace}.png", $gpx_options
     end
-    trace.to_png "#{$export_prefix}#{trace}.png", $gpx_options
   end
   def header(name=nil)
     @headers[name]
