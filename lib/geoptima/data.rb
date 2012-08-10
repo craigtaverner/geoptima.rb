@@ -112,9 +112,10 @@ module Geoptima
     def scale
       @scale ||= [100,100]
       unless @rescaled
-        major,minor = (width > height) ? [0,1] : [1,0]
-        puts "About to rescale scale=#{@scale.inspect} using major=#{major}, minor=#{minor}, height=#{height}, width=#{width}" if($debug)
-        @scale[minor] = (@scale[major].to_f * height / width).to_i
+        major = [width,height].max
+        puts "About to rescale scale=#{@scale.inspect} using major=#{major}, height=#{height}, width=#{width}" if($debug)
+        @scale[0] = (@scale[0].to_f * width / major).to_i
+        @scale[1] = (@scale[1].to_f * height / major).to_i
         @rescaled = true
       end
       @scale
@@ -135,7 +136,7 @@ module Geoptima
       [totals[0] / totals[2], totals[1] / totals[2]]
     end
     def remove_outliers
-      if width > 0.1 || height > 0.1
+      if @bounds && (width > 0.1 || height > 0.1)
         distances = []
         total_distance = 0.0
         max_distance = 0.0
@@ -199,6 +200,13 @@ module Geoptima
 </gpx>
 """
     end
+    def as_csv
+      traces.map do |trace|
+        trace.events.map do |e|
+          [e.time_key,e.latitude,e.longitude].join("\t")
+        end.join("\n")
+      end.join("\n")
+    end
     def fix_options(options={})
       options.keys.each do |key|
         val = options[key]
@@ -220,6 +228,7 @@ module Geoptima
       self.colors[index%(self.colors.length)]
     end
     def to_png(filename, options={})
+      return unless(length>0)
       fix_options options
       puts "Exporting with options: #{options.inspect}"
       self.scale = options['scale']
@@ -242,6 +251,7 @@ module Geoptima
         end
       end
       traces.each_with_index do |trace,index|
+        point_color = color(index)
         line_color = PNG::Color.from "0x00006688"
         if options['point_color'] && !(options['point_color'] =~ /auto/i)
           pc = options['point_color'].gsub(/^\#/,'').gsub(/^0x/,'').upcase
@@ -256,7 +266,7 @@ module Geoptima
           puts "Got point color #{point_color} from data ID '#{trace.data_id}' index #{data_idm[trace.data_id]}" if($debug)
         else
           point_color = color(index)
-          puts "Got point color #{point_color} from trace index #{index}"
+          puts "Got point color #{point_color} from trace index #{index}" if($debug)
         end
 
         prev = nil

@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.14")
+Geoptima::assert_version(">=0.1.15")
 
 $debug=false
 
@@ -18,7 +18,7 @@ $print_limit = 10000
 $gpx_options = {
   'scale' => 190, 'padding' => 5,
   'limit' => 2, 'png_limit' => 10,
-  'points' => true, 'point_size' => 2, 'point_color' => '0000aa'
+  'points' => true, 'point_size' => 2, 'point_color' => 'auto'
 }
 
 $files = Geoptima::Options.process_args do |option|
@@ -147,12 +147,13 @@ Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> 
       Known supported GPX options (might be more, see data.rb code):
         limit:#{$gpx_options['limit']}\t\tLimit GPX output to traces with at least this number of events
         png_limit:#{$gpx_options['png_limit']}\t\tLimit PNG output to traces with at least this number of events
+        merge:#{$gpx_options['merge']}\t\tMerge all traces into a single trace
         scale:#{$gpx_options['scale']}\t\tSize of print area in PNG output
         padding:#{$gpx_options['padding']}\t\tSpace around print area
         points:#{$gpx_options['points']}\t\tTurn on/off points
         point_size:#{$gpx_options['point_size']}\t\tSet point size
         point_color:#{$gpx_options['point_color']}\tSet point color: RRGGBBAA in hex (else 'auto')
-        format:#{$gpx_options['format']}\t\tExport format: 'gpx', 'png', default 'all'
+        format:#{$gpx_options['format']}\t\tExport format: 'gpx', 'csv', 'png', default 'all'
       PNG images will be 'scale + 2 * padding' big (#{$gpx_options['scale'].to_i+2*$gpx_options['padding'].to_i} for current settings). The scale will be used for the widest dimension, and the other will be reduced to fit the actual size of the trace. The projection used is non, with the points simply mapped to their GPS locations. This will cause visual distortions far from the equator where dlat!=dlon.
 EOHELP
   show_header_maps
@@ -290,16 +291,24 @@ class Export
       end
     end
   end
-  def export_gpx(trace)
-    if !($gpx_options['format'].to_s =~ /png/)
+  def self.export_gpx(trace)
+    if $gpx_options['format'].to_s =~ /^(gpx|all|)$/
       File.open("#{$export_prefix}#{trace}.gpx",'w') do |out|
         puts "Exporting #{trace.length} GPS events to trace: #{trace}"
         out.puts trace.as_gpx
       end
     end
   end
-  def export_png(trace)
-    if !($gpx_options['format'].to_s =~ /gpx/)
+  def self.export_gps(trace)
+    if $gpx_options['format'].to_s =~ /^(csv|all|)$/
+      File.open("#{$export_prefix}#{trace}.csv",'w') do |out|
+        puts "Exporting #{trace.length} GPS events to trace: #{trace}"
+        out.puts trace.as_csv
+      end
+    end
+  end
+  def self.export_png(trace)
+    if $gpx_options['format'].to_s =~ /^(png|all|)$/
       puts "Exporting #{trace.length} GPS events to PNG: #{trace}"
       if $verbose
         puts "\tBounds: #{trace.bounds}"
@@ -363,23 +372,25 @@ $datasets.keys.sort.each do |imei|
     puts "\tLast Event:  #{dataset.last}"
     dataset.report_errors "\t"
   end
+  if $export_gpx
+    merged_traces = Geoptima::MergedTrace.new(dataset)
+    dataset.each_trace do |trace|
+      Export.export_gpx(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
+      Export.export_gps(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
+      Export.export_png(trace) if(trace.length>=($gpx_options['png_limit'] || 10).to_i)
+      merged_traces << trace if($gpx_options['merge'])
+    end
+    if($gpx_options['merge'])
+      Export.export_gpx(merged_traces)
+      Export.export_gps(merged_traces)
+      Export.export_png(merged_traces)
+    end
+  end
   if events && ($print || $export)
     names = $event_names
     names = dataset.events_names if(names.length<1)
     export = Export.new(imei,names,dataset)
     export.export_stats(dataset.stats) if($export_stats)
-    if $export_gpx
-      merged_traces = Geoptima::MergedTrace.new(dataset)
-      dataset.each_trace do |trace|
-        export.export_gpx(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
-        export.export_png(trace) if(trace.length>=($gpx_options['png_limit'] || 10).to_i)
-        merged_traces << trace if($gpx_options['merge'])
-      end
-      if($gpx_options['merge'])
-        export.export_gpx(merged_traces)
-        export.export_png(merged_traces)
-      end
-    end
     if $header_maps && $header_maps.length > 0
       $header_maps.each do |hm|
         puts "Searching for events for header_maps '#{hm.event}'"
