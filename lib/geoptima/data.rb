@@ -5,7 +5,7 @@ require 'multi_json'
 require 'geoptima/daterange'
 begin
   require 'png'
-rescue
+rescue LoadError
   puts "No PNG library installed, ignoring PNG output of GPX results"
 end
 
