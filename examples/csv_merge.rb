@@ -213,8 +213,8 @@ class CSVDatasets
     filename = "#{$export_dir}/#{$export_name}"
     File.open(filename,'w') do |out|
       out.puts headers.join("\t")
-      @datasets.sort.each(headers) do |dataset|
-        dataset.each do |day,line|
+      @datasets.sort.each do |dataset|
+        dataset.each(headers) do |day,line|
           out.puts line.join("\t")
         end
       end
