@@ -1,0 +1,5 @@
+Blue	9	com.facebook.katana	Facebook (Katana)
+Brown	10	com.google.android.gm	Gmail
+Bubblegum	2	com.viber.voip	Viber
+Cyan	10	com.whatsapp	WhatsApp
+Gray	9	com.yahoo.mobile.client.android.im	Yahoo! Messenger
