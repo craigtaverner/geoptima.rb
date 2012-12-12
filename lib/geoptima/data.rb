@@ -4,6 +4,7 @@ require 'rubygems'
 require 'multi_json'
 require 'geoptima/daterange'
 require 'geoptima/locationrange'
+require 'geoptima/timer'
 begin
   require 'png'
 rescue LoadError
@@ -40,24 +41,43 @@ module Geoptima
   end
 
   class Trace
-    attr_reader :dataset, :data_id, :data_ids, :name, :tracename
+    attr_reader :dataset, :data_id, :data_id_hashset, :name, :tracename
     attr_reader :bounds, :events, :totals, :scale, :padding
-    def initialize(dataset)
+    def initialize(dataset, options={})
       @dataset = dataset
+      @trace_type = options[:type]
       @data_id = nil
-      @data_ids = []
-      @name = dataset.name
+      @data_id_hashset = {}
+      @name = options[:name] || dataset.name
       @events = []
+      case @trace_type
+      when /ways/
+        @ptag = 'wpt'
+      when /route/
+        @ttag = 'rte'
+        @ptag = 'rtept'
+      else
+        @ttag = 'trk'
+        @stag = 'trkseg'
+        @ptag = 'trkpt'
+      end
+    end
+    def data_ids
+      puts "About to sort data ids: #{@data_id_hashset.keys.join(',')}" if($debug)
+      @data_id_hashset.keys.compact.sort
     end
     def <<(e)
-      @tracename ||= "#{name}-#{e.time}"
-      unless @data_id
-        @data_id ||= e.file.id
-        @data_ids << e.file.id
+      if gpx_id = e.gpx_id
+        @tracename ||= "#{name}-#{e.time}"
+        @data_id ||= e.gpx_id
+        @data_id_hashset[e.gpx_id] ||= 0
+        @data_id_hashset[e.gpx_id] += 1
+        check_bounds(e)
+        check_totals(e)
+        @events << e unless(co_located(e,@events[-1]))
+      elsif $debug
+        puts "Ignoring event with nil GPX id: #{e.inspect}"
       end
-      check_bounds(e)
-      check_totals(e)
-      @events << e unless(co_located(e,@events[-1]))
     end
     def co_located(event,other)
       event && other && event.latitude == other.latitude && event.longitude == other.longitude
@@ -88,13 +108,22 @@ module Geoptima
         raise "Passed a string value: #{value.inspect}"
       end
       begin
-        @bounds[key] = value if(@bounds[key].nil? || @bounds[key] > value)
+        @bounds[key] = value if(!value.nil? &&(@bounds[key].nil? || @bounds[key] > value))
       rescue
          raise "Failed to set bounds using current:#{@bounds.inspect}, value=#{value.inspect}"
       end
     end
     def check_bounds_max(key,value)
-      @bounds[key] = value if(@bounds[key].nil? || @bounds[key] < value)
+      @bounds[key] = value if(!value.nil? &&(@bounds[key].nil? || @bounds[key] < value))
+    end
+    def check_trace_bounds(t)
+      @bounds ||= {}
+      check_bounds_min :minlat, t.bounds[:minlat]
+      check_bounds_min :minlon, t.bounds[:minlon]
+      check_bounds_max :maxlat, t.bounds[:maxlat]
+      check_bounds_max :maxlon, t.bounds[:maxlon]
+      @width = nil
+      @height = nil
     end
     def each
       events.each{|e| yield e}
@@ -174,10 +203,57 @@ module Geoptima
     def bounds_as_gpx
       "<bounds " + bounds.keys.map{|k| "#{k}=\"#{bounds[k]}\""}.join(' ') + "/>"
     end
-    def event_as_gpx(e,index)
-      "<trkpt lat=\"#{e.latitude}\" lon=\"#{e.longitude}\"><ele>#{index}</ele><time>#{e.time}</time></trkpt>"
+    def event_as_gpx(e,elevation=0.0)
+      "<#{@ptag} lat=\"#{e.latitude}\" lon=\"#{e.longitude}\"><ele>#{elevation}</ele><time>#{e.time}</time><name>#{e.name}</name><desc>#{e.description}</desc></#{@ptag}>"
     end
     def as_gpx
+      return unless(length>0)
+      case @trace_type
+      when /way/
+        as_gpx_ways
+      when /route/
+        as_gpx_route
+      else
+        as_gpx_track
+      end
+    end
+    def as_gpx_ways
+      gpx = %{<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="geoptima.rb - Craig Taverner">
+  <metadata>
+    #{bounds_as_gpx}
+  </metadata>
+  <name>#{tracename}</name>
+  } +
+      traces.map do |trace|
+        trace.events.map do |e|
+          event_as_gpx(e)
+        end.join("\n  ")
+      end.join("\n  ") +
+  """
+</gpx>
+"""
+    end
+    def as_gpx_route
+      gpx = %{<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="geoptima.rb - Craig Taverner">
+  <metadata>
+    #{bounds_as_gpx}
+  </metadata>
+  <rte>
+    <name>#{tracename}</name>
+    } +
+      traces.map do |trace|
+        trace.events.map do |e|
+          event_as_gpx(e,ei)
+        end.join("\n    ")
+      end.join("\n    ") +
+    """
+  </rte>
+</gpx>
+"""
+    end
+    def as_gpx_track
       ei = 0
       gpx = %{<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="geoptima.rb - Craig Taverner">
@@ -193,7 +269,7 @@ module Geoptima
           ei += 1
           event_as_gpx(e,ei)
         end.join("\n      ")
-      end.join("\n      </trkseg><trkseg>") +
+      end.join("\n    </trkseg>\n    <trkseg>\n      ") +
       """
     </trkseg>
   </trk>
@@ -216,6 +292,13 @@ module Geoptima
           val = val.to_i
         end
         options[key] = val
+      end
+      puts "Fixed options: #{options.inspect}"
+      options['show_line'].nil? && (options['show_line']=true)
+      if @trace_type =~ /ways/
+        options['show_line'] = false
+        options['point_size'] = (options['point_size'].to_i + 1) * 2
+        puts "Adjusted line/point settings for ways: show_line:#{options['show_line']}, point_size:#{options['point_size']}"
       end
     end
     def traces
@@ -245,14 +328,15 @@ module Geoptima
       end
 
       data_idm = data_ids.inject({}){|a,v| a[v]=a.length;a}
+      puts "Created map of data ids from available set: #{data_ids.inspect}"
       if data_ids.length > 1
         data_ids.each do |did|
-          puts "Mapped data ID '#{did}' to color: #{color(data_idm[did])}"
+          puts "\t#{color(data_idm[did])}\t#{data_id_hashset[did]}\t#{did}"
         end
       end
       traces.each_with_index do |trace,index|
-        point_color = color(index)
         line_color = PNG::Color.from "0x00006688"
+        point_color = color(index)
         if options['point_color'] && !(options['point_color'] =~ /auto/i)
           pc = options['point_color'].gsub(/^\#/,'').gsub(/^0x/,'').upcase
           pc = "0x#{pc}FFFFFFFF"[0...10]
@@ -261,9 +345,6 @@ module Geoptima
           rescue
             puts "Failed to interpret color #{pc}, use format 0x00000000: #{$!}"
           end
-        elsif data_ids.length > 1
-          point_color = color(data_idm[trace.data_id])
-          puts "Got point color #{point_color} from data ID '#{trace.data_id}' index #{data_idm[trace.data_id]}" if($debug)
         else
           point_color = color(index)
           puts "Got point color #{point_color} from trace index #{index}" if($debug)
@@ -272,9 +353,13 @@ module Geoptima
         prev = nil
         trace.events.each do |e|
           p = scale_event(e)
+          if data_idm.length > 1
+            point_color = color(data_idm[e.gpx_id])
+            puts "Got point color #{point_color} from data ID '#{e.gpx_id}' index #{data_idm[e.gpx_id]}" if($debug)
+          end
           begin
             # draw an anti-aliased line
-            if prev && prev != p
+            if options['show_line'] && prev && prev != p
               canvas.line prev[0], prev[1], p[0], p[1], line_color
             end
 
@@ -306,7 +391,7 @@ module Geoptima
     def initialize(dataset)
       @dataset = dataset
       @name = dataset.name
-      @data_ids = []
+      @data_id_hashset = {}
       @traces = []
     end
     def tracename
@@ -315,7 +400,7 @@ module Geoptima
     def <<(t)
       check_trace_totals(t)
       check_trace_bounds(t)
-      @data_ids = (@data_ids+t.data_ids).sort.uniq.compact
+      @data_id_hashset = @data_id_hashset.merge(t.data_id_hashset)
       @traces << t
     end
     def each
@@ -331,15 +416,6 @@ module Geoptima
     def check_trace_totals(t)
       @totals ||= [0.0,0.0,0]
       [0,1,2].each{|i| @totals[i] += t.totals[i]}
-    end
-    def check_trace_bounds(t)
-      @bounds ||= {}
-      check_bounds_min :minlat, t.bounds[:minlat]
-      check_bounds_min :minlon, t.bounds[:minlon]
-      check_bounds_max :maxlat, t.bounds[:maxlat]
-      check_bounds_max :maxlon, t.bounds[:maxlon]
-      @width = nil
-      @height = nil
     end
   end
 
@@ -464,8 +540,14 @@ module Geoptima
     def closer_than(other,seconds=60)
       (self - other).abs < seconds
     end
+    def latitude
+      @latitude ||= self['latitude']
+    end
+    def longitude
+      @longitude ||= self['longitude']
+    end
     def location
-      @location ||= self['latitude'] && Point.new(self['latitude'],self['longitude'])
+      @location ||= latitude && Point.new(latitude,longitude)
     end
     def locate(gps)
       incr_error "GPS String Data" if(gps['latitude'].is_a? String)
@@ -481,6 +563,110 @@ module Geoptima
     end
     def to_s
       "#{name}[#{time}]: #{@fields.inspect}"
+    end
+    def description
+      "#{name}"
+    end
+    def valid_gpx?
+      location
+    end
+    def gpx_id
+      file.id
+    end
+    def to_type
+      case name
+      when 'runningApps'
+        RunningApps.new(self)
+      else
+        self
+      end
+    end
+  end
+
+  class AppCategory
+    attr_reader :key, :category, :app_class, :name
+    def initialize(key, category, app_class, name)
+      @key, @category, @app_class, @name = key, category, app_class, name
+    end
+  end
+
+  class AppCategories
+    attr_reader :app_categories
+    def initialize(path)
+      begin
+        @app_categories = File.open(path).inject({}) do |a,l|
+          f=l.chomp.split(/\,/).map{|v| v.gsub(/^\s+/,'').gsub(/\s+$/,'')}
+          a[f[0]] = AppCategory.new(*f) unless(f[0] =~ /appName.unique/i)
+          a
+        end
+      rescue
+        puts "Failed to load app categories from '#{path}': #{$!}"
+        @app_categories = {}
+      end
+    end
+    def length
+      @app_categories.length
+    end
+    def [](key)
+      @app_categories[key]
+    end
+    def apps
+      @apps ||= @app_categories.keys.compact.sort.uniq
+    end
+    def categories
+      @categories ||= @app_categories.values.map{|c| c.category}.compact.sort.uniq
+    end
+    def app_classes
+      @app_classes ||= @app_categories.values.map{|c| c.app_class}.compact.sort.uniq
+    end
+    def to_s
+      "#{length} apps, #{categories.length} categories, #{app_classes.length} classes"
+    end
+    def a_to_s(a)
+      (a.length > 3 ? a[0..2]+['...'] : a).join(',')
+    end
+    def describe
+      "#{length} apps, #{categories.length} categories (#{a_to_s(categories)}), #{app_classes.length} classes (#{a_to_s(app_classes)})"
+    end
+  end
+
+  # This class allows the 'runningApps' event to behave differently than
+  # normal events. It is used by the GPX exporter to color code these based
+  # on the app category
+  class RunningApps
+    attr_reader :inner_event
+    def initialize(event)
+      @inner_event = event
+    end
+    def method_missing(symbol,*args,&block)
+      @inner_event.send symbol, *args, &block
+    end
+    def description
+      @inner_event['appName']
+    end
+    def valid_gpx?
+      @inner_event.valid_gpx? && @inner_event['state'] == 'STARTED'
+    end
+    def gpx_id
+      app = @inner_event['appName']
+      if $app_categories && $app_categories.length > 0
+        puts "Choosing internal GPX ID based on specified categories: #{$app_categories.describe}" if($debug)
+        if $app_categories.categories.length == 1
+          puts "Filtering on only one category, using app name for GPX ID: #{app}" if($debug)
+          if (a=$app_categories[app]) && a.category =~ /\w/
+            a.key
+          else
+            nil
+          end
+        elsif (a=$app_categories[app]) && a.category =~ /\w/
+          puts "Found matching category app[#{app}] => #{a.category}" if($debug)
+          a.category
+        else
+          nil
+        end
+      else
+        app
+      end
     end
   end
 
@@ -721,6 +907,8 @@ module Geoptima
 
     def recent(event,key,seconds=60)
       unless event[key]
+        timer("export.event.recent").start
+        timer("export.event.recent.#{key}").start
         if imei = event.file.imei
           puts "Searching for recent values for '#{key}' starting at event #{event}" if($debug)
           ev,prop=key.split(/\./)
@@ -742,6 +930,8 @@ module Geoptima
         else
           puts "Not searching for correlated data without imei: #{event}"
         end
+        timer("export.event.recent.#{key}").stop
+        timer("export.event.recent").stop
       end
 #      @recent[key] ||= ''
       event[key]
@@ -780,9 +970,11 @@ module Geoptima
     def sorted(event_type=nil)
       merge_events unless @sorted
       unless @sorted[event_type] || event_type.nil?
+        timer("sorted.#{event_type}").start
         @sorted[event_type] = @sorted[nil].reject do |event|
           event.name != event_type
         end
+        timer("sorted.#{event_type}").stop
       end
       @sorted[event_type]
     end
@@ -797,6 +989,7 @@ module Geoptima
     def stats
       merge_events unless @sorted
       unless @stats
+        timer('stats').start
         @stats = {}
         event_count = 0
         sorted.each do |event|
@@ -809,6 +1002,7 @@ module Geoptima
             @stats[key][value] += 1
           end
         end
+        timer('stats').stop
       end
       @stats.reject! do |k,v|
         v.length > 500 || v.length > 10 && v.length > event_count / 2
@@ -820,9 +1014,23 @@ module Geoptima
       @data.map{ |v| v.events_names }.flatten.uniq.sort
     end
 
+    def timer(name)
+      @timers ||= {}
+      @timers[name] ||= Geoptima::Timer.new(name)
+    end
+
+    def dump_timers(out=STDOUT)
+      out.puts "Printing timer information for #{@timers.length} timers:"
+      @timers.keys.sort.each do |key|
+        t = @timers[key]
+        out.puts "\t#{t.describe}"
+      end
+    end
+
     def merge_events
       @sorted ||= {}
       unless @sorted[nil]
+        timer('merge_events').start
         event_hash = {}
         puts "Creating sorted maps for #{self}" if($debug)
         events_names.each do |name|
@@ -845,16 +1053,34 @@ module Geoptima
           puts "After adding #{name} events, maps are #{event_hash.length} long" if($debug)
         end
         puts "Merging and sorting #{event_hash.keys.length} maps" if($debug)
+        timer('merge_events.sort').start
         @sorted[nil] = event_hash.keys.sort.map{|k| event_hash[k]}
+        timer('merge_events.sort').stop
         puts "Sorted #{@sorted[nil].length} events" if($debug)
+        timer('merge_events.locate').start
         locate_events if(options[:locate])
+        timer('merge_events.locate').stop
+        timer('merge_events').stop
       end
       @sorted
     end
 
+    def waypoints(waypoints=nil)
+      @waypoints ||= {}
+      event_type = waypoints=='all' ? nil : waypoints
+      unless @waypoints[event_type]
+        @waypoints[event_type] = Trace.new(self, :type => 'ways', :name => "waypoints-#{self.name}")
+        sorted(event_type).each do |e|
+          e = e.to_type
+          @waypoints[event_type] << e if(e.valid_gpx?)
+        end
+      end
+      @waypoints[event_type]
+    end
+
     def each_trace
-      puts "Exporting GPX traces"
       trace = nil
+      timer('each_trace').start
       sorted('gps').each do |gps|
         trace ||= Trace.new(self)
         if trace.too_far(gps)
@@ -864,19 +1090,22 @@ module Geoptima
         trace << gps
       end
       yield trace if(trace)
+      timer('each_trace').stop
     end
 
     def locate_events
       prev_gps = nil
       count = 0
-      puts "Locating #{sorted.length} events" if($debug)
+      puts "Locating #{sorted.length} events" if(true||$debug)
       sorted.each do |event|
+        timer('locate.each').start
         if event.name === 'gps'
           event.locate(event)
           prev_gps = event
         elsif prev_gps
           count += 1 if(event.locate_if_closer_than(prev_gps,60))
         end
+        timer('locate.each').stop
       end
       puts "Located #{count} / #{sorted.length} events" if($debug)
     end

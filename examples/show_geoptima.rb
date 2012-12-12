@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.15")
+Geoptima::assert_version(">=0.1.16")
 
 $debug=false
 
@@ -39,6 +39,7 @@ $files = Geoptima::Options.process_args do |option|
   option.L {$print_limit = [1,ARGV.shift.to_i].max}
   option.M {$mapfile = ARGV.shift}
   option.G {$gpx_options.merge! ARGV.shift.split(/[\,\;]+/).inject({}){|a,v| k=v.split(/[\:\=]+/);a[k[0]]=k[1]||true;a}}
+  option.A {$app_categories = Geoptima::AppCategories.new(ARGV.shift)}
 end.map do |file|
   File.exist?(file) ? file : puts("No such file: #{file}")
 end.compact
@@ -136,9 +137,14 @@ Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> 
   -h  show this help
   -P  prefix for exported files (default: ''; current: #{$export_prefix})
   -E  comma-seperated list of event types to show and export (default: all; current: #{$event_names.join(',')})
+  -A  application category map file (default: app names)
   -T  time range to limit results to (default: all; current: #{$time_range})
-  -B  location limited to specified bounds in formats
-      either minlat,minlon,maxlat,maxlon or minlat..maxlat,minlon..maxlon
+  -B  location limited to specified bounds in one of these formats:
+        minlat,minlon,maxlat,maxlon
+        minlat..maxlat,minlon..maxlon
+        DIST(distance_in_km,lat,lon)
+        RANGE[minlat,minlon,maxlat,maxlon]
+        RANGE[minlat..maxlat,minlon..maxlon]
       (default: all; current: #{$location_range})
   -L  limit verbose output to specific number of lines #{cw $print_limit}
   -M  mapfile of normal->altered header names: #{$mapfile}
@@ -148,12 +154,14 @@ Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> 
         limit:#{$gpx_options['limit']}\t\tLimit GPX output to traces with at least this number of events
         png_limit:#{$gpx_options['png_limit']}\t\tLimit PNG output to traces with at least this number of events
         merge:#{$gpx_options['merge']}\t\tMerge all traces into a single trace
+        only_merge:#{$gpx_options['merge']}\t\tDo not export unmerged traces
         scale:#{$gpx_options['scale']}\t\tSize of print area in PNG output
         padding:#{$gpx_options['padding']}\t\tSpace around print area
         points:#{$gpx_options['points']}\t\tTurn on/off points
         point_size:#{$gpx_options['point_size']}\t\tSet point size
         point_color:#{$gpx_options['point_color']}\tSet point color: RRGGBBAA in hex (else 'auto')
         format:#{$gpx_options['format']}\t\tExport format: 'gpx', 'csv', 'png', default 'all'
+        waypoints:#{$gpx_options['waypoints']}\t\tExport waypoints for events: <event_type>, default 'all'
       PNG images will be 'scale + 2 * padding' big (#{$gpx_options['scale'].to_i+2*$gpx_options['padding'].to_i} for current settings). The scale will be used for the widest dimension, and the other will be reduced to fit the actual size of the trace. The projection used is non, with the points simply mapped to their GPS locations. This will cause visual distortions far from the equator where dlat!=dlon.
 EOHELP
   show_header_maps
@@ -281,7 +289,9 @@ class Export
     end || hnames
   end
   def export_stats(stats)
-    File.open("#{$export_prefix}#{imei}_stats.csv",'w') do |out|
+    filename="#{$export_prefix}#{imei}_stats.csv"
+    puts "Exporting stats to #{filename}"
+    File.open(filename,'w') do |out|
       stats.keys.sort.each do |header|
         out.puts header
         values = stats[header].keys.sort{|a,b| b.to_s<=>a.to_s}
@@ -373,51 +383,80 @@ $datasets.keys.sort.each do |imei|
     dataset.report_errors "\t"
   end
   if $export_gpx
+    dataset.timer('export.gpx').start
+    $gpx_options['merge'] = true if($gpx_options['only_merge'])
     merged_traces = Geoptima::MergedTrace.new(dataset)
     dataset.each_trace do |trace|
-      Export.export_gpx(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
-      Export.export_gps(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
-      Export.export_png(trace) if(trace.length>=($gpx_options['png_limit'] || 10).to_i)
+      dataset.timer('export.gpx.trace').start
+      unless $gpx_options['only_merge']
+        Export.export_gpx(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
+        Export.export_gps(trace) if(trace.length>=($gpx_options['limit'] || 1).to_i)
+        Export.export_png(trace) if(trace.length>=($gpx_options['png_limit'] || 10).to_i)
+      end
       merged_traces << trace if($gpx_options['merge'])
+      dataset.timer('export.gpx.trace').stop
     end
     if($gpx_options['merge'])
+      dataset.timer('export.gpx.merged').start
       Export.export_gpx(merged_traces)
       Export.export_gps(merged_traces)
       Export.export_png(merged_traces)
+      dataset.timer('export.gpx.merged').stop
     end
+    if($gpx_options['waypoints'])
+      dataset.timer('export.gpx.waypoints').start
+      waypoints = dataset.waypoints($gpx_options['waypoints'])
+      waypoints.check_trace_bounds(merged_traces) # expand the waypoints to the traces, to make image superposition easier
+      Export.export_gpx(waypoints)
+      Export.export_gps(waypoints)
+      Export.export_png(waypoints)
+      dataset.timer('export.gpx.waypoints').stop
+    end
+    dataset.timer('export.gpx').stop
   end
   if events && ($print || $export)
+    dataset.timer('export').start
     names = $event_names
     names = dataset.events_names if(names.length<1)
     export = Export.new(imei,names,dataset)
     export.export_stats(dataset.stats) if($export_stats)
     if $header_maps && $header_maps.length > 0
+      puts "Exporting #{dataset} with specified header maps: #{$header_maps.inspect}"
       $header_maps.each do |hm|
         puts "Searching for events for header_maps '#{hm.event}'"
         events.each do |event|
           if event.name == hm.event
+            dataset.timer('export.event').start
             header = export.header(event.name)
             fields = header.map{|h| event[h]}
             b_header = export.base_headers + export.more_headers
             b_fields = export.base_fields(event) + export.more_fields(event,dataset)
             all_fields = hm.map_fields(b_header + header, b_fields + fields)
             export.puts_to all_fields.join("\t"), event.name
+            dataset.timer('export.event').stop
           end
         end
       end
     else
+      puts "Exporting #{dataset}"
       events.each do |event|
         names.each do |name|
           if event.name === name
+            dataset.timer('export.event').start
             fields = export.header($seperate ? name : nil).map{|h| event[h]}
             b_fields = export.time_fields(event) + export.base_fields(event) + export.more_fields(event,dataset)
+            dataset.timer('export.event.write').start
             export.puts_to "#{b_fields.join("\t")}\t#{fields.join("\t")}", name
+            dataset.timer('export.event.write').stop
             if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}"}
+            dataset.timer('export.event').stop
           end
         end
       end
     end
     export.close
+    dataset.timer('export').stop
   end
+  dataset.dump_timers
 end
 
