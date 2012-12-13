@@ -8,8 +8,8 @@ module Geoptima
     HUNDRED_YEARS_SECONDS = 100 * 365 * DAY_SECONDS
     HUNDRED_YEARS_MILLIS = HUNDRED_YEARS_SECONDS * 1000
     def self.from_file(arg)
-      base,time=arg.to_s.split(/_/)
-      self.from(time)
+      base,*times=arg.to_s.split(/_/)
+      times.map{|time| self.from(time)}
     end
     def self.from(time)
       time = time.to_f
@@ -28,3 +28,4 @@ if $PROGRAM_NAME =~ /\/file_time.rb$/
     puts "#{(filename.to_s+" "*40)[0..40]} -->   #{Geoptima::FileTime.from_file filename}"
   end
 end
+

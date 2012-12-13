@@ -25,7 +25,7 @@ EOF
   s.files        = Dir.glob("{bin,lib,rdoc}/**/*").reject{|x| x=~/(tmp|target|test-data)/ || x=~/~$/} +
                    Dir.glob("examples/*rb") + Dir.glob("examples/sample*json") + 
                    %w(README.rdoc CHANGELOG CONTRIBUTORS Gemfile geoptima.gemspec)
-  s.executables  = ['show_geoptima','geoptima_file_time','csv_chart','csv_stats','csv_merge']
+  s.executables  = ['show_geoptima','geoptima_file_time','geoptima_file_time_stats','csv_chart','csv_stats','csv_merge']
 
   s.extra_rdoc_files = %w( README.rdoc )
   s.rdoc_options = ["--quiet", "--title", "Geoptima.rb", "--line-numbers", "--main", "README.rdoc", "--inline-source"]

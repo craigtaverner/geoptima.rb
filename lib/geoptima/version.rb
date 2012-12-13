@@ -1,6 +1,6 @@
 module Geoptima
 
-  VERSION = "0.1.16"
+  VERSION = "0.1.17"
 
   class Version
     attr_reader :comparator, :version, :major, :minor, :patch
