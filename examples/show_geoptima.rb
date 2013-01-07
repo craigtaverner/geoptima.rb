@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.16")
+Geoptima::assert_version(">=0.1.18")
 
 $debug=false
 

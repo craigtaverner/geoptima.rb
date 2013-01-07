@@ -50,6 +50,9 @@ module Geoptima
       @data_id_hashset = {}
       @name = options[:name] || dataset.name
       @events = []
+      initialize_tags
+    end
+    def initialize_tags
       case @trace_type
       when /ways/
         @ptag = 'wpt'
@@ -393,6 +396,7 @@ module Geoptima
       @name = dataset.name
       @data_id_hashset = {}
       @traces = []
+      initialize_tags
     end
     def tracename
       @tracename ||= "Merged-#{traces.length}-traces-#{traces[0]}"
