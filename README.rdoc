@@ -24,10 +24,11 @@ This script imports the JSON files on the command-line and then:
 
 Which event types to include and various other options are available using the command-line. Run it with the -h option to get a full list of options. The current version should support:
 
-  Usage: show_geoptima <-dwvpxomlsafh> <-P export_prefix> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
+  Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit>
+                     <-E types> <-T min,max> <-M mapfile> file <files>
   -d  debug mode (output more context during processing) (false)
   -w  verbose mode (output extra information to console) 
-  -v  print geoptima library version 0.1.7
+  -v  print geoptima library version 0.1.19
   -p  print mode (print out final results to console) 
   -x  export IMEI specific CSV files for further processing 
   -o  export field statistis 
@@ -36,12 +37,67 @@ Which event types to include and various other options are available using the c
   -s  seperate the export files by event type 
   -a  combine all IMEI's into a single dataset 
   -f  flush stdout 
+  -e  show error statistics 
+  -g  export GPX traces 
+  -t  split time colum to multiple columns 
   -h  show this help
   -P  prefix for exported files (default: ''; current: )
   -E  comma-seperated list of event types to show and export (default: all; current: )
+  -A  application category map file (default: app names)
   -T  time range to limit results to (default: all; current: )
+  -B  location limited to specified bounds in one of these formats:
+        minlat,minlon,maxlat,maxlon
+        minlat..maxlat,minlon..maxlon
+        DIST(distance_in_km,lat,lon)
+        RANGE[minlat,minlon,maxlat,maxlon]
+        RANGE[minlat..maxlat,minlon..maxlon]
+      (default: all; current: )
   -L  limit verbose output to specific number of lines (10000)
   -M  mapfile of normal->altered header names: 
+  -G  GPX export options as ';' separated list of key:value pairs
+      Current GPX options: {"scale"=>190, "padding"=>5, "limit"=>2,
+      "png_limit"=>10, "points"=>true, "point_size"=>2, "point_color"=>"auto"}
+  -X  Geolocation options as ';' separated list of key:value pairs
+      Current geolocation options: {"algorithm"=>"window", "window"=>60}
+  
+  The GPX and Geolocation options require futher explanation:
+  
+  Known supported GPX options (might be more, see data.rb code):
+  limit:2     	    Limit GPX output to traces with at least this number of events
+  png_limit:10	    Limit PNG output to traces with at least this number of events
+  merge:     	    Merge all traces into a single trace
+  only_merge:	    Do not export unmerged traces
+  scale:190	    Size of print area in PNG output
+  padding:5	    Space around print area
+  points:true	    Turn on/off points
+  point_size:2	    Set point size
+  point_color:auto  Set point color: RRGGBBAA in hex (else 'auto')
+  format:     	    Export format: 'gpx', 'csv', 'png', default 'all'
+  waypoints:	    Export waypoints for events: <event_type>, default 'all'
+  
+  PNG images will be 'scale + 2 * padding' big (200 for current settings).
+  The scale will be used for the widest dimension, and the other will be reduced
+  to fit the actual size of the trace. No projection is used, with the points
+  simply mapped to their GPS locations. This will cause visual distortions far
+  from the equator where dlat!=dlon.
+  
+  Known supported geolocation options (might be more, see data.rb code):
+  algorithm:window  Which geolocation algorithm to use
+  window:60	    Time window in seconds, has slightly different
+                    meanings for different algorithms
+  
+  Currently supported algorithms:
+  window:      select GPS point within window seconds of event,
+               GPS points after the event take priority.
+               (this is the default for geoptima GEM version >= 0.1.19)
+  +win:        select only GPS points after event (within time window)
+  -win:        select only GPS points before event (within time window)
+               (this is the default for geoptima GEM version < 0.1.19)
+  closest:     select closest GPS point within window seconds of event
+               (similar to window option, but chooses closest)
+  interpolate: Linear interpolation between two closest points
+               (experimental, do not use yet)
+               (read redmine wiki page for explanation of algorithm)
 
 Currently the script also locates events that are close enough in time to GPS events. We hope to improve this with interpolation in the near future to be more compatible with the results from the commercial solutions. This time-window is also used for some of the extended header information, like LAC and CI, and effectively duplicates those fields from their own events to others. Take this into account when doing statistics on the results. It is better to use the original values, not the duplicates, if you want reliable statistics.
 
@@ -150,7 +206,7 @@ To get the optimized json gem installed, or to get chart support working you wil
 
 ==== Running on Windows
 
-The best way to run on windows is to edit your system path (usually go to 'my computer->properties->advanced->environment), and add the path to your ruby bin directory (usually C:\Ruby\bin) to the end of the system PATH. After that, open a command-prompt (start->cmd.exe) and type 'ruby -v' to see that it worked. Then you can execute the 'gem install' commands and the 'show_geoptima' commands from this console.
+The best way to run on windows is to edit your system path (usually go to 'my computer->properties->advanced->environment), and add the path to your ruby bin directory (usually C:\\Ruby\\bin) to the end of the system PATH. After that, open a command-prompt (start->cmd.exe) and type 'ruby -v' to see that it worked. Then you can execute the 'gem install' commands and the 'show_geoptima' commands from this console.
 
 ==== Installing Gruff for Charting
 

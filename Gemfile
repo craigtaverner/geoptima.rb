@@ -1,5 +1,3 @@
-source :gemcutter
-
 gemspec
 
 group 'test' do
@@ -9,6 +7,10 @@ group 'test' do
   gem "rspec", ">= 2.0.0"
   gem "test-unit"
 end
+
+gem "multi_json", ">= 1.1.0"
+gem "json_pure", ">= 1.6.5"
+gem "json", ">= 1.6.5"
 
 #gem 'ruby-debug-base19' if RUBY_VERSION.include? "1.9"
 #gem 'ruby-debug-base' if RUBY_VERSION.include? "1.8"
