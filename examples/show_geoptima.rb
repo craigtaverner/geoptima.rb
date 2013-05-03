@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.18")
+Geoptima::assert_version(">=0.1.19")
 
 $debug=false
 
@@ -20,6 +20,18 @@ $gpx_options = {
   'limit' => 2, 'png_limit' => 10,
   'points' => true, 'point_size' => 2, 'point_color' => 'auto'
 }
+
+$geolocation_options = {
+  'algorithm' => 'window', 'window' => 60
+}
+
+def make_hash_options(arg)
+  arg.split(/[\,\;]+/).inject({}) do |a,v|
+    k=v.split(/[\:\=]+/)
+    a[k[0]]=k[1]||true
+    a
+  end
+end
 
 $files = Geoptima::Options.process_args do |option|
   option.p {$print = true}
@@ -38,8 +50,9 @@ $files = Geoptima::Options.process_args do |option|
   option.B {$location_range = Geoptima::LocationRange.from ARGV.shift}
   option.L {$print_limit = [1,ARGV.shift.to_i].max}
   option.M {$mapfile = ARGV.shift}
-  option.G {$gpx_options.merge! ARGV.shift.split(/[\,\;]+/).inject({}){|a,v| k=v.split(/[\:\=]+/);a[k[0]]=k[1]||true;a}}
+  option.G {$gpx_options.merge! make_hash_options(ARGV.shift)}
   option.A {$app_categories = Geoptima::AppCategories.new(ARGV.shift)}
+  option.X {$geolocation_options.merge! make_hash_options(ARGV.shift)}
 end.map do |file|
   File.exist?(file) ? file : puts("No such file: #{file}")
 end.compact
@@ -116,10 +129,33 @@ end
 
 exit 0 if($print_version && !$verbose)
 
+class String
+  def wrappad(max=80,pad=8)
+    max = [max,pad+1].max
+    wrapped = [self.to_s]
+    while wrapped[-1].length > max
+      a,b = wrapped[-1][0..(max-1)],wrapped[-1][max..-1]
+      if (si = a.rindex(/\s+/)) && (a[0..(si-1)] =~ /\S/)
+        b = [a[si..-1],b].join.gsub(/^\s+/,'')
+        a = a[0..(si-1)]
+      else
+        a+='-'
+      end
+      a = a.gsub(/\s+$/,'')
+      b = b.gsub(/^\s+/,'')
+      wrapped[-1] = a
+      wrapped << [' '*pad,b].join
+      puts "WRAP[#{max}:#{pad}]: #{wrapped.inspect}"
+    end
+    wrapped
+  end
+end
+
 $help = true if($files.length < 1)
 if $help
   puts <<EOHELP
-Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> <-T min,max> <-M mapfile> file <files>
+Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit>
+                     <-E types> <-T min,max> <-M mapfile> file <files>
   -d  debug mode (output more context during processing) #{cw $debug}
   -w  verbose mode (output extra information to console) #{cw $verbose}
   -v  print geoptima library version #{Geoptima::VERSION}
@@ -149,20 +185,47 @@ Usage: show_geoptima <-dwvpxomlsafegh> <-P export_prefix> <-L limit> <-E types> 
   -L  limit verbose output to specific number of lines #{cw $print_limit}
   -M  mapfile of normal->altered header names: #{$mapfile}
   -G  GPX export options as ';' separated list of key:value pairs
-      Current GPX options: #{$gpx_options.inspect}
-      Known supported GPX options (might be more, see data.rb code):
-        limit:#{$gpx_options['limit']}\t\tLimit GPX output to traces with at least this number of events
-        png_limit:#{$gpx_options['png_limit']}\t\tLimit PNG output to traces with at least this number of events
-        merge:#{$gpx_options['merge']}\t\tMerge all traces into a single trace
-        only_merge:#{$gpx_options['merge']}\t\tDo not export unmerged traces
-        scale:#{$gpx_options['scale']}\t\tSize of print area in PNG output
-        padding:#{$gpx_options['padding']}\t\tSpace around print area
-        points:#{$gpx_options['points']}\t\tTurn on/off points
-        point_size:#{$gpx_options['point_size']}\t\tSet point size
-        point_color:#{$gpx_options['point_color']}\tSet point color: RRGGBBAA in hex (else 'auto')
-        format:#{$gpx_options['format']}\t\tExport format: 'gpx', 'csv', 'png', default 'all'
-        waypoints:#{$gpx_options['waypoints']}\t\tExport waypoints for events: <event_type>, default 'all'
-      PNG images will be 'scale + 2 * padding' big (#{$gpx_options['scale'].to_i+2*$gpx_options['padding'].to_i} for current settings). The scale will be used for the widest dimension, and the other will be reduced to fit the actual size of the trace. The projection used is non, with the points simply mapped to their GPS locations. This will cause visual distortions far from the equator where dlat!=dlon.
+#{('      Current GPX options: '+$gpx_options.inspect).wrappad(80,6).join("\n")}
+  -X  Geolocation options as ';' separated list of key:value pairs
+#{('      Current geolocation options: '+$geolocation_options.inspect).wrappad(80,6).join("\n")}
+
+The GPX and Geolocation options require futher explanation:
+
+Known supported GPX options (might be more, see data.rb code):
+  limit:#{$gpx_options['limit']}     \t    Limit GPX output to traces with at least this number of events
+  png_limit:#{$gpx_options['png_limit']}\t    Limit PNG output to traces with at least this number of events
+  merge:#{$gpx_options['merge']}     \t    Merge all traces into a single trace
+  only_merge:#{$gpx_options['merge']}\t    Do not export unmerged traces
+  scale:#{$gpx_options['scale']}\t    Size of print area in PNG output
+  padding:#{$gpx_options['padding']}\t    Space around print area
+  points:#{$gpx_options['points']}\t    Turn on/off points
+  point_size:#{$gpx_options['point_size']}\t    Set point size
+  point_color:#{$gpx_options['point_color']}  Set point color: RRGGBBAA in hex (else 'auto')
+  format:#{$gpx_options['format']}     \t    Export format: 'gpx', 'csv', 'png', default 'all'
+  waypoints:#{$gpx_options['waypoints']}\t    Export waypoints for events: <event_type>, default 'all'
+PNG images will be 'scale + 2 * padding' big (#{$gpx_options['scale'].to_i+2*$gpx_options['padding'].to_i} for current settings).
+The scale will be used for the widest dimension, and the other will be reduced
+to fit the actual size of the trace. No projection is used, with the points
+simply mapped to their GPS locations. This will cause visual distortions far
+from the equator where dlat!=dlon.
+
+Known supported geolocation options (might be more, see data.rb code):
+algorithm:#{$geolocation_options['algorithm']}    Which geolocation algorithm to use
+window:#{$geolocation_options['window']}\t    Time window in seconds, has slightly different
+                    meanings for different algorithms
+
+Currently supported algorithms:
+  window:      select GPS point within window seconds of event,
+               GPS points after the event take priority.
+               (this is the default for geoptima GEM version >= 0.1.19)
+  +win:        select only GPS points after event (within time window)
+  -win:        select only GPS points before event (within time window)
+               (this is the default for geoptima GEM version < 0.1.19)
+  closest:     select closest GPS point within window seconds of event
+               (similar to window option, but chooses closest)
+  interpolate: Linear interpolation between two closest points
+               (experimental, do not use yet)
+               (read redmine wiki page for explanation of algorithm)
 EOHELP
   show_header_maps
   exit 0
@@ -171,7 +234,13 @@ end
 $verbose = $verbose || $debug
 show_header_maps if($verbose)
 
-$datasets = Geoptima::Dataset.make_datasets($files, :locate => true, :time_range => $time_range, :location_range => $location_range, :combine_all => $combine_all)
+$datasets = Geoptima::Dataset.make_datasets($files,
+  :locate => true,
+  :time_range => $time_range,
+  :location_range => $location_range,
+  :geolocation_options => $geolocation_options,
+  :combine_all => $combine_all
+)
 
 class Export
   attr_reader :files, :imei, :names, :headers

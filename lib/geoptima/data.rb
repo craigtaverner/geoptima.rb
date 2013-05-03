@@ -4,6 +4,7 @@ require 'rubygems'
 require 'multi_json'
 require 'geoptima/daterange'
 require 'geoptima/locationrange'
+require 'geoptima/locator'
 require 'geoptima/timer'
 begin
   require 'png'
@@ -16,8 +17,6 @@ end
 #
 module Geoptima
 
-  SPERDAY = 60*60*24
-  MSPERDAY = 1000*60*60*24
   SHORT = 256*256
   MIN_VALID_DATETIME = DateTime.parse("1970-01-01")
   MAX_VALID_DATETIME = DateTime.parse("2040-01-01")
@@ -484,7 +483,8 @@ module Geoptima
     }
 
     include ErrorCounter
-    attr_reader :file, :header, :name, :data, :fields, :time, :latitude, :longitude, :timeoffset
+    include Locatable
+    attr_reader :file, :gps, :header, :name, :data, :fields, :time, :latitude, :longitude, :timeoffset
     def initialize(file,start,name,header,data,previous=nil)
       @file = file
       @name = name
@@ -553,14 +553,12 @@ module Geoptima
     def location
       @location ||= latitude && Point.new(latitude,longitude)
     end
-    def locate(gps)
+    def set_location(gps)
       incr_error "GPS String Data" if(gps['latitude'].is_a? String)
       @latitude = gps['latitude'].to_f
       @longitude = gps['longitude'].to_f
       @location = nil
-    end
-    def locate_if_closer_than(gps,seconds=60)
-      locate(gps) if(closer_than(gps,seconds))
+      @gps = gps
     end
     def puts line
       Kernel.puts "#{name}[#{time}]: #{line}"
@@ -868,6 +866,7 @@ module Geoptima
       @options = options
       @time_range = options[:time_range] || DateRange.new(Config[:min_datetime],Config[:max_datetime])
       @location_range = options[:location_range] || LocationRange.everywhere
+      @geolocation_options = options[:geolocation_options] || {}
       @fields = {}
     end
 
@@ -1098,20 +1097,14 @@ module Geoptima
     end
 
     def locate_events
-      prev_gps = nil
-      count = 0
       puts "Locating #{sorted.length} events" if(true||$debug)
-      sorted.each do |event|
-        timer('locate.each').start
-        if event.name === 'gps'
-          event.locate(event)
-          prev_gps = event
-        elsif prev_gps
-          count += 1 if(event.locate_if_closer_than(prev_gps,60))
-        end
-        timer('locate.each').stop
+      locator = Geoptima::Locator.new self.sorted, @geolocation_options
+      timer("locate.all").start
+      locator.locate
+      timer("locate.all").stop
+      if (true||$debug)
+        puts "Located #{locator.located.length} / #{sorted.length} events (timed: #{timer("locate.all")}"
       end
-      puts "Located #{count} / #{sorted.length} events" if($debug)
     end
 
     def to_s
