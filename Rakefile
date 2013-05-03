@@ -1,10 +1,15 @@
 $LOAD_PATH.unshift File.expand_path("../lib", __FILE__)
 
 require 'rake'
+require 'rspec/core/rake_task'
 require 'rdoc/task'
 
 require "geoptima/version"
 
+desc "Run all specs"
+RSpec::Core::RakeTask.new("spec") do |t|
+  t.rspec_opts = ["-c"]
+end
 
 task :check_commited do
   status = %x{git status}
@@ -59,3 +64,4 @@ task 'upload-docs' do
     "craig@amanzi.com:/var/www/gforge-projects/geoptima/"
 end
 
+task :default => 'spec'
