@@ -79,10 +79,12 @@ module Geoptima
       end
     end
     def set_previous_if(gps,time_window=0.0)
-      self.previous_gps = gps
-      if closer_than(gps,time_window)
-        self.previous_point = gps.location
-        self.previous_point_gap = (self - gps).abs
+      if gps
+        self.previous_gps = gps
+        if closer_than(gps,time_window)
+          self.previous_point = gps.location
+          self.previous_point_gap = (self - gps).abs
+        end
       end
     end
   end
