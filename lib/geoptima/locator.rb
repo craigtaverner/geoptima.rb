@@ -61,7 +61,7 @@ module Geoptima
     end
   end
   module Locatable
-    attr_accessor :previous_point, :next_point, :previous_point_gap, :next_point_gap, :location
+    attr_accessor :previous_gps, :previous_point, :next_point, :previous_point_gap, :next_point_gap, :location
     def closer_than(gps,window=0.0)
       if $debug && gps && window > 0
         puts "Comparing times:"
@@ -79,6 +79,7 @@ module Geoptima
       end
     end
     def set_previous_if(gps,time_window=0.0)
+      self.previous_gps = gps
       if closer_than(gps,time_window)
         self.previous_point = gps.location
         self.previous_point_gap = (self - gps).abs

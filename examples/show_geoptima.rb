@@ -8,7 +8,7 @@ require 'date'
 require 'geoptima'
 require 'geoptima/options'
 
-Geoptima::assert_version(">=0.1.19")
+Geoptima::assert_version(">=0.1.20")
 
 $debug=false
 
@@ -517,7 +517,7 @@ $datasets.keys.sort.each do |imei|
             dataset.timer('export.event.write').start
             export.puts_to "#{b_fields.join("\t")}\t#{fields.join("\t")}", name
             dataset.timer('export.event.write').stop
-            if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}"}
+            if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}\t(GPS:#{event.previous_gps && event.previous_gps.fields.inspect})"}
             dataset.timer('export.event').stop
           end
         end
