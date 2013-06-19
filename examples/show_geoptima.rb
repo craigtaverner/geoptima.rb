@@ -517,7 +517,7 @@ $datasets.keys.sort.each do |imei|
             dataset.timer('export.event.write').start
             export.puts_to "#{b_fields.join("\t")}\t#{fields.join("\t")}", name
             dataset.timer('export.event.write').stop
-            if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}\t(GPS:#{event.previous_gps && event.previous_gps.fields.inspect})"}
+            if_le{puts "#{b_fields.join("\t")}\t#{event.fields.inspect}\t(GPS:#{[event.previous_gps,event.next_gps].compact.map{|gps| gps.fields.inspect}})"}
             dataset.timer('export.event').stop
           end
         end
