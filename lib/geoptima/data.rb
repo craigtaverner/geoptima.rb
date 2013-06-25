@@ -545,20 +545,13 @@ module Geoptima
       (self - other).abs < seconds
     end
     def latitude
-      @latitude ||= self['latitude']
+      location && location.latitude
     end
     def longitude
-      @longitude ||= self['longitude']
+      location && location.longitude
     end
     def location
-      @location ||= latitude && Point.new(latitude,longitude)
-    end
-    def set_location(gps)
-      incr_error "GPS String Data" if(gps['latitude'].is_a? String)
-      @latitude = gps['latitude'].to_f
-      @longitude = gps['longitude'].to_f
-      @location = nil
-      @gps = gps
+      @location ||= self['latitude'] && Point.new(self['latitude'],self['longitude'])
     end
     def puts line
       Kernel.puts "#{name}[#{time}]: #{line}"
